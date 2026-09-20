@@ -141,7 +141,8 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <main className="pitch-backdrop flex min-h-dvh items-center justify-center px-4">
+    <main className="relative flex min-h-dvh items-center justify-center px-4">
+      <div aria-hidden className="pitch-backdrop pointer-events-none absolute inset-0 -z-10" />
       <Card className="w-full max-w-sm">
         <CardContent className="space-y-5 pt-6">
           <div className="flex items-center gap-2">

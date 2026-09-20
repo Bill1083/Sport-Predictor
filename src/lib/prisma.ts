@@ -11,10 +11,16 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-/** SQLite file from DATABASE_URL (`file:./dev.db` or an absolute path). */
+/**
+ * SQLite file from DATABASE_URL. A relative path is resolved against the
+ * `prisma/` directory, which is how the Prisma CLI resolves it too, so
+ * `file:./dev.db` means the same file for `prisma db push` and the app.
+ */
 export function databaseFile(): string {
   const raw = (process.env.DATABASE_URL ?? 'file:./dev.db').trim().replace(/^"(.*)"$/, '$1');
-  return raw.startsWith('file:') ? raw.slice('file:'.length) : raw;
+  const file = raw.startsWith('file:') ? raw.slice('file:'.length) : raw;
+  if (file === ':memory:' || file.startsWith('/') || /^[A-Za-z]:[\\/]/.test(file)) return file;
+  return `${process.cwd()}/prisma/${file.replace(/^\.\//, '')}`;
 }
 
 function createClient(): PrismaClient {

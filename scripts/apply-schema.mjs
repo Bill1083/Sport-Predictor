@@ -57,7 +57,9 @@ async function main() {
   const { PrismaClient } = await import('@prisma/client');
   const { PrismaBetterSQLite3 } = await import('@prisma/adapter-better-sqlite3');
   const raw = (process.env.DATABASE_URL ?? 'file:./dev.db').trim().replace(/^"(.*)"$/, '$1');
-  const url = raw.startsWith('file:') ? raw.slice('file:'.length) : raw;
+  const file = raw.startsWith('file:') ? raw.slice('file:'.length) : raw;
+  // Relative paths resolve against prisma/, as the Prisma CLI does.
+  const url = path.isAbsolute(file) ? file : path.join(process.cwd(), 'prisma', file);
   const prisma = new PrismaClient({ adapter: new PrismaBetterSQLite3({ url }), log: ['error'] });
 
   try {
