@@ -17,6 +17,7 @@ import type {
   ProviderKey,
   SportsDataProvider,
 } from '@/lib/providers/provider';
+import { curatedFor, currentStartYear } from '@/lib/sports/competitions';
 import type { SportKey } from '@/lib/sports/registry';
 import { parseResult } from '@/lib/types';
 
@@ -87,6 +88,44 @@ export async function upsertCompetition(provider: ProviderKey, sportKey: SportKe
   if (ref.currentSeason && match.currentSeason !== ref.currentSeason) patch.currentSeason = ref.currentSeason;
   if (Object.keys(patch).length === 0) return match;
   return prisma.competition.update({ where: { id: match.id }, data: patch });
+}
+
+/**
+ * Seed the curated competitions for a sport so every provider's id for the
+ * same league lands on one row. Existing rows gain any ids they lack.
+ */
+export async function seedCuratedCompetitions(sportKey: SportKey, now = new Date()): Promise<number> {
+  let created = 0;
+  for (const curated of curatedFor(sportKey)) {
+    const existing = await prisma.competition.findUnique({ where: { sportKey_slug: { sportKey, slug: curated.slug } } });
+    if (!existing) {
+      await prisma.competition.create({
+        data: {
+          sportKey,
+          slug: curated.slug,
+          name: curated.name,
+          shortName: curated.shortName,
+          country: curated.country,
+          type: curated.type,
+          tier: curated.tier,
+          currentSeason: String(currentStartYear(now, curated.crossYear)),
+          providerIdsJson: JSON.stringify(curated.ids),
+        },
+      });
+      created += 1;
+      continue;
+    }
+    const ids = parseJson<Record<string, string>>(existing.providerIdsJson, {});
+    let changed = false;
+    for (const [provider, id] of Object.entries(curated.ids)) {
+      if (id && !ids[provider]) {
+        ids[provider] = id;
+        changed = true;
+      }
+    }
+    if (changed) await prisma.competition.update({ where: { id: existing.id }, data: { providerIdsJson: JSON.stringify(ids) } });
+  }
+  return created;
 }
 
 const MATCH_WINDOW_MS = 36 * 3_600_000;

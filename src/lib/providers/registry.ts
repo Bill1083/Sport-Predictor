@@ -7,8 +7,12 @@
  */
 
 import { env } from '@/lib/env';
+import { ApiSportsFootballProvider } from '@/lib/providers/api-sports';
+import { FootballDataProvider } from '@/lib/providers/football-data';
+import { FootballDataCoUkProvider } from '@/lib/providers/football-data-co-uk';
 import { MockProvider } from '@/lib/providers/mock';
 import type { Capability, ProviderKey, SportsDataProvider } from '@/lib/providers/provider';
+import { TheSportsDbProvider } from '@/lib/providers/thesportsdb';
 import type { SportKey } from '@/lib/sports/registry';
 
 const registry = new Map<ProviderKey, SportsDataProvider>();
@@ -18,6 +22,10 @@ export function registerProvider(provider: SportsDataProvider): void {
 }
 
 registerProvider(new MockProvider());
+registerProvider(new FootballDataProvider());
+registerProvider(new ApiSportsFootballProvider());
+registerProvider(new TheSportsDbProvider());
+registerProvider(new FootballDataCoUkProvider());
 
 /** Built-in preference per sport, best data source first. */
 const DEFAULT_ORDER: Record<string, ProviderKey[]> = {

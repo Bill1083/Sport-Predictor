@@ -8,24 +8,30 @@
 
 import type { Competition } from '@prisma/client';
 
+import { normaliseName, resolveTeam } from '@/lib/entities/linking';
+import { env } from '@/lib/env';
 import { registerJob } from '@/lib/jobs/registry';
 import type { JobHandler, JobProgress, JobResult, JobScope } from '@/lib/jobs/types';
-import { prisma } from '@/lib/prisma';
+import { parseJson, prisma } from '@/lib/prisma';
 import { pruneCache } from '@/lib/providers/http';
+import { forecastAt } from '@/lib/providers/open-meteo';
 import { BudgetExhaustedError, ProviderError, type SportsDataProvider } from '@/lib/providers/provider';
-import { providersFor } from '@/lib/providers/registry';
+import { providerByKey, providersFor } from '@/lib/providers/registry';
+import { TheSportsDbProvider } from '@/lib/providers/thesportsdb';
 import { getSettingsForSports } from '@/lib/settings';
 import { isSportKey, type SportKey } from '@/lib/sports/registry';
 import {
   competitionRefFor,
   eventRefFor,
   eventsMissingStats,
+  seedCuratedCompetitions,
   syncInjuries,
   upsertCompetition,
   upsertEvent,
   upsertEventStats,
   upsertLineups,
 } from '@/lib/sync/events';
+import type { Weather } from '@/lib/types';
 
 async function enabledSports(scope: JobScope): Promise<SportKey[]> {
   if (scope.sportKey) return isSportKey(scope.sportKey) ? [scope.sportKey] : [];
@@ -90,6 +96,10 @@ const catalogue: JobHandler = {
     const settings = await getSettingsForSports(sports);
     await progress.phase('listing competitions', sports.length);
     for (const sportKey of sports) {
+      if (!env.mockSports) {
+        const seeded = await seedCuratedCompetitions(sportKey);
+        if (seeded > 0) progress.log(`${sportKey}: seeded ${seeded} curated competitions`);
+      }
       const providers = providersFor(sportKey, 'competitions', settings.get(sportKey)?.providerOrder);
       for (const provider of providers) {
         const proceed = await attempt(tally, progress, `${provider.key} competitions`, async () => {
@@ -117,6 +127,25 @@ const catalogue: JobHandler = {
         if (!proceed) break;
       }
       await progress.tick();
+    }
+    // Crests and stadiums for teams no provider gave one, via TheSportsDB by name.
+    if (!env.mockSports) {
+      const tsdb = providerByKey('thesportsdb');
+      const bare = await prisma.team.findMany({
+        where: { sportKey: { in: sports }, crestUrl: null, OR: [{ homeEvents: { some: { competition: { followed: true } } } }, { awayEvents: { some: { competition: { followed: true } } } }] },
+        take: 40,
+      });
+      if (tsdb instanceof TheSportsDbProvider && bare.length > 0) {
+        await progress.phase('crests from TheSportsDB', bare.length);
+        for (const team of bare) {
+          const proceed = await attempt(tally, progress, `thesportsdb crest ${team.name}`, async () => {
+            const found = await tsdb.findTeamByName(team.name);
+            if (found && normaliseName(found.name) === normaliseName(team.name)) await resolveTeam('thesportsdb', found, team.sportKey as SportKey);
+          });
+          await progress.tick();
+          if (!proceed) break;
+        }
+      }
     }
     const pruned = await pruneCache();
     if (pruned > 0) progress.log(`pruned ${pruned} expired cache rows`);
@@ -279,6 +308,7 @@ const context: JobHandler = {
     const settings = await getSettingsForSports(sports);
     let injuries = 0;
     let lineups = 0;
+    let weather = 0;
     for (const sportKey of sports) {
       const sportSettings = settings.get(sportKey);
       const competitions = await followedCompetitions(sportKey, scope);
@@ -328,12 +358,32 @@ const context: JobHandler = {
         await progress.tick();
         if (tally.budget) break;
       }
+      // Weather at the venue for outdoor sports, refreshed every six hours.
+      if (sportSettings?.weather !== false && !INDOOR_SPORTS.has(sportKey)) {
+        const events = await prisma.event.findMany({
+          where: { sportKey, status: 'SCHEDULED', startsAt: { gte: new Date(now), lte: horizon }, competition: { followed: true } },
+          include: { venue: true, homeTeam: { include: { venue: true } } },
+        });
+        for (const event of events) {
+          const venue = event.venue ?? event.homeTeam?.venue ?? null;
+          if (!venue || venue.lat === null || venue.lon === null || venue.indoor) continue;
+          const current = parseJson<Weather | null>(event.weatherJson, null);
+          if (current?.fetchedAt && now - Date.parse(current.fetchedAt) < 6 * 3_600_000) continue;
+          const forecast = await forecastAt(venue.lat, venue.lon, event.startsAt);
+          if (forecast) {
+            await prisma.event.update({ where: { id: event.id }, data: { weatherJson: JSON.stringify(forecast) } });
+            weather += 1;
+          }
+        }
+      }
     }
     const result = outcome(tally, 'context calls');
-    result.message = `${injuries} injuries, ${lineups} lineups (${result.message})`;
+    result.message = `${injuries} injuries, ${lineups} lineups, ${weather} forecasts (${result.message})`;
     return result;
   },
 };
+
+const INDOOR_SPORTS = new Set(['basketball', 'ice_hockey', 'tennis']);
 
 // ---------------------------------------------------------------------------
 // backfill - past seasons for ratings and backtests (manual)
