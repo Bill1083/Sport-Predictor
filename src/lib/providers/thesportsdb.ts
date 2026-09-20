@@ -140,7 +140,8 @@ export class TheSportsDbProvider implements SportsDataProvider {
     const name = SPORT_NAMES[sport];
     if (!name) return [];
     const data = await providerJson<{ countries?: TsdbLeague[] | null; leagues?: TsdbLeague[] | null }>(this.key, `${this.base()}/search_all_leagues.php?s=${encodeURIComponent(name)}`, { ttlMs: 7 * DAY_MS });
-    const list = data.countries ?? data.leagues ?? [];
+    // TheSportsDB files every motor series under Motorsport; only Formula 1 belongs to the f1 sport.
+    const list = (data.countries ?? data.leagues ?? []).filter((l) => sport !== 'f1' || /formulas*(1|one)/i.test(l.strLeague));
     const year = currentStartYear(new Date(), true);
     return list.map((l) => ({
       externalId: l.idLeague,

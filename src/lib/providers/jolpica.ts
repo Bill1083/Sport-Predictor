@@ -37,8 +37,11 @@ interface Race {
 }
 
 interface MRData {
-  MRData: { RaceTable?: { Races?: Race[] }; DriverTable?: { Drivers?: Driver[] } };
+  MRData: { total?: string; limit?: string; offset?: string; RaceTable?: { Races?: Race[] }; DriverTable?: { Drivers?: Driver[] } };
 }
+
+/** Jolpica serves at most 100 rows per page. */
+const PAGE = 100;
 
 export function driverRef(d: Driver, constructor?: Constructor): TeamRef {
   return {
@@ -101,9 +104,23 @@ export class JolpicaProvider implements SportsDataProvider {
     return true;
   }
 
+  /** Every page of a race-table endpoint, merged so a race split across pages keeps all its rows. */
   private async races(path: string, ttlMs: number): Promise<Race[]> {
-    const data = await providerJson<MRData>(this.key, `${BASE}${path}`, { ttlMs, timeoutMs: 20_000 });
-    return data.MRData?.RaceTable?.Races ?? [];
+    const byRound = new Map<string, Race>();
+    for (let offset = 0; offset < 5_000; offset += PAGE) {
+      const data = await providerJson<MRData>(this.key, `${BASE}${path}?limit=${PAGE}&offset=${offset}`, { ttlMs, timeoutMs: 20_000 });
+      for (const race of data.MRData?.RaceTable?.Races ?? []) {
+        const existing = byRound.get(race.round);
+        if (!existing) byRound.set(race.round, { ...race });
+        else {
+          if (race.Results) existing.Results = [...(existing.Results ?? []), ...race.Results];
+          if (race.QualifyingResults) existing.QualifyingResults = [...(existing.QualifyingResults ?? []), ...race.QualifyingResults];
+        }
+      }
+      const total = Number(data.MRData?.total ?? 0);
+      if (!Number.isFinite(total) || offset + PAGE >= total) break;
+    }
+    return Array.from(byRound.values());
   }
 
   async listCompetitions(sport: SportKey): Promise<CompetitionRef[]> {
@@ -131,12 +148,11 @@ export class JolpicaProvider implements SportsDataProvider {
   /** The season's schedule with results and grids merged in. */
   private async season(year: string, ttlMs: number): Promise<EventRef[]> {
     const [schedule, results, qualifying, driverData] = await Promise.all([
-      this.races(`/${year}.json?limit=100`, ttlMs),
-      this.races(`/${year}/results.json?limit=1000`, ttlMs),
-      this.races(`/${year}/qualifying.json?limit=1000`, ttlMs),
+      this.races(`/${year}.json`, ttlMs),
+      this.races(`/${year}/results.json`, ttlMs),
+      this.races(`/${year}/qualifying.json`, ttlMs),
       providerJson<MRData>(this.key, `${BASE}/${year}/drivers.json?limit=100`, { ttlMs: Math.max(ttlMs, DAY_MS) }),
     ]);
-    const drivers = driverData.MRData?.DriverTable?.Drivers ?? [];
     const byRound = new Map<string, Race>();
     for (const race of schedule) byRound.set(race.round, { ...race });
     for (const race of results) {
@@ -147,6 +163,10 @@ export class JolpicaProvider implements SportsDataProvider {
       const entry = byRound.get(race.round);
       if (entry) entry.QualifyingResults = race.QualifyingResults;
     }
+    // The entry list for races still to come: whoever started the latest race, since the
+    // season's driver list also carries substitutes and reserves who have long gone home.
+    const latest = results.filter((r) => (r.Results?.length ?? 0) > 0).sort((a, b) => Number(b.round) - Number(a.round))[0];
+    const drivers = latest ? (latest.Results ?? []).map((r) => r.Driver) : (driverData.MRData?.DriverTable?.Drivers ?? []);
     return Array.from(byRound.values()).map((race) => mapRace(race, drivers));
   }
 

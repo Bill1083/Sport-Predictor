@@ -268,6 +268,10 @@ async function upsertRace(provider: ProviderKey, competition: Competition, ref: 
       update: { gridPosition: entrant.gridPosition, finishPosition: entrant.finishPosition, score: entrant.score, statusNote: entrant.statusNote },
     });
   }
+  // The entry list is authoritative: a driver dropped from it (a reserve who went home) leaves the race.
+  if (resolved.length > 0) {
+    await prisma.eventParticipant.deleteMany({ where: { eventId: event.id, side: 'ENTRANT', teamId: { notIn: resolved.map((r) => r.team.id) } } });
+  }
   return event;
 }
 

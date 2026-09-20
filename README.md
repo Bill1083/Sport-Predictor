@@ -84,7 +84,11 @@ when the lineups are known:
    strengths per team fitted by maximum likelihood with time decay, a home
    advantage, and the low-score correction that fixes the draw rate. It yields
    the full score grid: expected goals, most likely scoreline, over/under
-   lines, both-to-score. Points sports use a margin model instead.
+   lines, both-to-score. Points sports use a margin model instead. A
+   Grand Prix is a multi-entrant event: each driver's pace and retirement
+   rate come from recent classifications, the grid shifts pace once
+   qualifying is known, and a Monte Carlo gives win, podium, points and
+   expected finish for the whole field.
 3. **Stat forecasts.** Passes, possession, shots, corners, cards and the rest
    from a ratio-of-averages model: the league mean scaled by what a side
    produces and what its opponent concedes, shrunk toward the mean for thin
@@ -153,6 +157,11 @@ cookie and a server render; every page follows it.
 | [Open-Meteo](https://open-meteo.com) | no key | venue weather |
 | Google News RSS | no key | headlines for the AI analyst |
 | [The Odds API](https://the-odds-api.com) | 500 credits/month, optional | "market implied %" comparison column, off by default |
+| [API-Sports Rugby](https://api-sports.io) | 100 req/day (same key as API-Football) | rugby union and league fixtures, results, tables |
+| [Jolpica F1](https://api.jolpi.ca) | no key, paced | every Grand Prix since 1950: schedule, grid, classification |
+| [Sackmann tennis archive](https://github.com/Aneeshers/tennis-sackmann-archive) | CSV mirror, no key | ATP and WTA results and serve statistics for history |
+| ESPN tennis scoreboard | no key, unofficial | upcoming matches and results on the tours |
+| [cricketdata.org](https://cricketdata.org) | 100 hits/day | series, fixtures, results and innings scores |
 
 Each provider has a daily budget in `.env`. A job stops when the budget is
 spent and resumes the next day; the Today page shows what is used. With
