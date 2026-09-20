@@ -1,3 +1,7 @@
+import { fileURLToPath } from 'node:url';
+
+const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Emits .next/standalone so the Docker image ships only what it needs.
@@ -24,6 +28,8 @@ const nextConfig = {
       // SQLite driver, which needs `fs`, so they resolve to nothing there.
       config.resolve.alias = {
         ...config.resolve.alias,
+        [here('./src/lib/scheduler.ts')]: false,
+        [here('./src/lib/jobs/runner.ts')]: false,
         'better-sqlite3': false,
         '@prisma/adapter-better-sqlite3': false,
         bindings: false,

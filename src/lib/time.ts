@@ -182,6 +182,18 @@ export function formatDateTime(date: Date | string, tz: string = env.timezone): 
   }).format(d);
 }
 
+/** "15:00" in the zone. */
+export function formatTime(date: Date | string, tz: string = env.timezone): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
+}
+
+/** "Saturday 21 September" in the zone. */
+export function formatDayHeading(date: Date | string, tz: string = env.timezone): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long' }).format(d);
+}
+
 export function formatDate(date: Date | string, tz: string = env.timezone): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   return new Intl.DateTimeFormat('en-GB', {

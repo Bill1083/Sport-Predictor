@@ -5,6 +5,7 @@
  */
 
 import { env } from '@/lib/env';
+import '@/lib/jobs/all';
 import { JOB_HANDLERS } from '@/lib/jobs/registry';
 import type { JobHandler, JobProgress, JobResult, JobScope } from '@/lib/jobs/types';
 import { prisma, withDatabase } from '@/lib/prisma';
