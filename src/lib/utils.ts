@@ -101,3 +101,11 @@ export function chunk<T>(items: T[], size: number): T[][] {
 export function uniq<T>(items: T[]): T[] {
   return Array.from(new Set(items));
 }
+
+/** 1st, 2nd, 3rd, 4th, 11th, 21st. */
+export function ordinal(n: number): string {
+  const abs = Math.abs(Math.round(n));
+  const mod100 = abs % 100;
+  const suffix = mod100 >= 11 && mod100 <= 13 ? 'th' : abs % 10 === 1 ? 'st' : abs % 10 === 2 ? 'nd' : abs % 10 === 3 ? 'rd' : 'th';
+  return `${Math.round(n)}${suffix}`;
+}

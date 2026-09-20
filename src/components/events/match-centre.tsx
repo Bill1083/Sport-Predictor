@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { CloudSun, HeartPulse, MapPin, Sparkles, Users } from 'lucide-react';
 
 import { EventCard } from '@/components/events/event-card';
+import { PredictButton } from '@/components/events/predict-button';
 import { Crest, FormDots, ProbBar, StatusChip } from '@/components/events/primitives';
 import { StandingsTable } from '@/components/leagues/standings-table';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +11,7 @@ import type { EventDto, PredictionDto } from '@/lib/serialize';
 import { MODEL_LABELS, sportDefinition } from '@/lib/sports/registry';
 import type { TableRow } from '@/lib/standings';
 import { formatDateTime } from '@/lib/time';
-import { cn } from '@/lib/utils';
+import { cn, ordinal } from '@/lib/utils';
 
 export interface MatchCentreProps {
   event: EventDto;
@@ -72,7 +73,7 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
               <Link href={home ? `/teams/${home.id}` : '#'} className="font-display text-base font-semibold leading-tight hover:underline sm:text-lg">
                 {home?.name ?? 'TBD'}
               </Link>
-              {home && positions.has(home.id) ? <span className="text-xs text-muted-foreground">{positions.get(home.id)}th in table</span> : null}
+              {home && positions.has(home.id) ? <span className="text-xs text-muted-foreground">{ordinal(positions.get(home.id) as number)} in table</span> : null}
               <FormDots form={home ? formString(home.id, homeForm) : ''} />
             </div>
             <div className="text-center">
@@ -103,7 +104,7 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
               <Link href={away ? `/teams/${away.id}` : '#'} className="font-display text-base font-semibold leading-tight hover:underline sm:text-lg">
                 {away?.name ?? 'TBD'}
               </Link>
-              {away && positions.has(away.id) ? <span className="text-xs text-muted-foreground">{positions.get(away.id)}th in table</span> : null}
+              {away && positions.has(away.id) ? <span className="text-xs text-muted-foreground">{ordinal(positions.get(away.id) as number)} in table</span> : null}
               <FormDots form={away ? formString(away.id, awayForm) : ''} />
             </div>
           </div>
@@ -120,6 +121,12 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
           ) : (
             <p className="mt-5 text-center text-sm text-muted-foreground">No prediction yet. The engine runs 48 hours before kickoff.</p>
           )}
+
+          {!finished && event.status !== 'CANCELLED' ? (
+            <div className="mt-4 flex justify-center">
+              <PredictButton eventId={event.id} hasPrediction={Boolean(ensemble)} />
+            </div>
+          ) : null}
 
           <div className="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             {event.venue ? (
@@ -264,15 +271,15 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
                 </CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-2 gap-3 text-xs">
-                {[home, away].map((team) => {
+                {[home, away].map((team, index) => {
                   const lineup = team ? lineups.find((l) => l.teamId === team.id) : undefined;
                   return (
-                    <div key={team?.id ?? Math.random()}>
-                      <p className="mb-1 font-semibold">
+                    <div key={team?.id ?? `side-${index}`}>
+                      <div className="mb-1 font-semibold">
                         {team?.shortName ?? team?.name}
                         {lineup?.formation ? <span className="ml-1 text-muted-foreground">{lineup.formation}</span> : null}
                         {lineup ? <Badge variant={lineup.confirmed ? 'success' : 'secondary'} className="ml-1">{lineup.confirmed ? 'confirmed' : 'expected'}</Badge> : null}
-                      </p>
+                      </div>
                       <ul className="space-y-0.5 text-muted-foreground">
                         {lineup?.starters.map((s) => <li key={s}>{s}</li>) ?? <li>Not yet announced</li>}
                       </ul>

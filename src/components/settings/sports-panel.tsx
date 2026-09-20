@@ -189,17 +189,17 @@ export function SportsPanel({ sports }: { sports: SportRow[] }) {
               <span className="flex size-7 items-center justify-center rounded-full bg-secondary">
                 <SportIcon icon={sport.icon} className="size-4" />
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">
                   {sport.name}
                   {sport.phase > 1 ? (
                     <Badge variant="outline" className="ml-2 align-middle">
                       {sport.phase === 2 ? 'sports pack 2' : 'later'}
                     </Badge>
                   ) : null}
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">{sport.description}</span>
-              </span>
+                </div>
+                <p className="truncate text-xs text-muted-foreground">{sport.description}</p>
+              </div>
               {sport.enabled ? (
                 <>
                   <Select value={sport.mode} onValueChange={(v) => patch(sport.key, { mode: v })}>

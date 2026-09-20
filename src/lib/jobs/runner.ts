@@ -169,9 +169,16 @@ export async function ensureSyncJobs(): Promise<void> {
   if (writes.length > 0) await withDatabase(() => prisma.$transaction(writes));
 }
 
+let lastEnsure = 0;
+
 /** Everything the scheduler tick does: find due jobs and run them in turn. */
 export async function runDueJobs(now = new Date()): Promise<void> {
   if (!env.schedulerEnabled) return;
+  // Newly added job kinds get their rows without a restart.
+  if (now.getTime() - lastEnsure > 3_600_000) {
+    lastEnsure = now.getTime();
+    await ensureSyncJobs();
+  }
   const due = await withDatabase(() =>
     prisma.syncJob.findMany({
       where: { enabled: true, nextDueAt: { lte: now } },
