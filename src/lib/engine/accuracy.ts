@@ -22,6 +22,8 @@ export interface AccuracyReport {
   calibrationSlope: number | null;
   statCoverage: { key: string; n: number; withinRange: number; meanAbsError: number }[];
   upsets: { eventId: string; label: string; date: string; favourite: number; outcome: string }[];
+  /** Your own picks on finished events against the ensemble favourite on the same events. */
+  picks: { n: number; correct: number; modelCorrect: number };
 }
 
 export async function accuracyReport(sportKey: string | null, days = 365, limit = 4000): Promise<AccuracyReport> {
@@ -113,7 +115,27 @@ export async function accuracyReport(sportKey: string | null, days = 365, limit 
       return point;
     });
   const bins = calibrationBins(pairs);
+  const pickRows = await withDatabase(() =>
+    prisma.userPick.findMany({
+      where: { event: { status: 'FINISHED', ...(sportKey ? { sportKey } : {}), startsAt: { gte: since } } },
+      include: { event: { select: { resultJson: true, sportKey: true, predictions: { where: { modelKey: 'ensemble', isFinal: true }, take: 1, select: { probsJson: true } } } } },
+    }),
+  );
+  const picks = { n: 0, correct: 0, modelCorrect: 0 };
+  for (const row of pickRows.ok ? pickRows.data : []) {
+    const winner = resultWinner(parseResult(row.event.resultJson));
+    if (!winner) continue;
+    picks.n += 1;
+    if (row.outcome === winner) picks.correct += 1;
+    const final = row.event.predictions[0];
+    if (final) {
+      const probs = parseJson<ProbMap>(final.probsJson, {});
+      const favourite = Object.entries(probs).sort((x, y) => y[1] - x[1])[0]?.[0];
+      if (favourite === winner) picks.modelCorrect += 1;
+    }
+  }
   return {
+    picks,
     total: list.filter((r) => r.modelKey === 'ensemble').length,
     since: list.length > 0 ? list[list.length - 1].createdAt.toISOString() : null,
     models,

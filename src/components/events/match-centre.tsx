@@ -2,14 +2,16 @@ import Link from 'next/link';
 import { CloudSun, HeartPulse, MapPin, Newspaper, Sparkles, Users } from 'lucide-react';
 
 import { EventCard } from '@/components/events/event-card';
+import { PickPanel, type PickDto } from '@/components/events/pick-panel';
 import { PredictButton } from '@/components/events/predict-button';
 import { Crest, FormDots, ProbBar, StatusChip } from '@/components/events/primitives';
 import { StandingsTable } from '@/components/leagues/standings-table';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { EventDto, PredictionDto } from '@/lib/serialize';
-import { MODEL_LABELS, sportDefinition } from '@/lib/sports/registry';
+import { MODEL_LABELS, outcomesFor, sportDefinition } from '@/lib/sports/registry';
 import type { TableRow } from '@/lib/standings';
+import { resultWinner } from '@/lib/types';
 import { formatDate, formatDateTime } from '@/lib/time';
 import { cn, ordinal } from '@/lib/utils';
 
@@ -24,6 +26,7 @@ export interface MatchCentreProps {
   homeForm: EventDto[];
   awayForm: EventDto[];
   headlines: { teamId: string; title: string; url: string; source: string; publishedAt: string }[];
+  pick: PickDto | null;
 }
 
 function formString(team: string, events: EventDto[]): string {
@@ -44,7 +47,7 @@ function formString(team: string, events: EventDto[]): string {
  * The match page. Everything the models saw and everything they concluded,
  * side by side; after the result, what each model scored.
  */
-export function MatchCentre({ event, predictions, table, injuries, lineups, stats, h2h, homeForm, awayForm, headlines }: MatchCentreProps) {
+export function MatchCentre({ event, predictions, table, injuries, lineups, stats, h2h, homeForm, awayForm, headlines, pick }: MatchCentreProps) {
   const sport = sportDefinition(event.sportKey);
   const home = event.home;
   const away = event.away;
@@ -128,6 +131,17 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
               <PredictButton eventId={event.id} hasPrediction={Boolean(ensemble)} />
             </div>
           ) : null}
+
+          <div className="mt-3">
+            <PickPanel
+              eventId={event.id}
+              pick={pick}
+              outcomes={sport ? outcomesFor(sport) : ['HOME', 'AWAY']}
+              labels={(sport?.outcomeLabels ?? {}) as Record<string, string>}
+              open={event.status === 'SCHEDULED' && new Date(event.startsAt).getTime() > Date.now()}
+              result={finished ? resultWinner(event.result) : null}
+            />
+          </div>
 
           <div className="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             {event.venue ? (

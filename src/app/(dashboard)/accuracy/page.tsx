@@ -1,9 +1,10 @@
 import Link from 'next/link';
-import { Target } from 'lucide-react';
+import { Download, Target } from 'lucide-react';
 
 import { CalibrationChart, TimelineChart } from '@/components/accuracy/charts';
 import { EmptyState } from '@/components/shared/empty-state';
 import { PageHeader, StatCard } from '@/components/stat-card';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { accuracyReport } from '@/lib/engine/accuracy';
@@ -34,6 +35,16 @@ export default async function AccuracyPage() {
           report.total > 0
             ? `${formatInt(report.total)} final predictions scored${report.since ? ` since ${formatDate(report.since)}` : ''}. Lower log loss, Brier and RPS are better.`
             : 'Every final prediction is scored against the result: Brier, log loss, ranked probability score, calibration.'
+        }
+        actions={
+          report.total > 0 ? (
+            <Button asChild variant="outline" size="sm">
+              <a href={`/api/export?sport=${selected?.key ?? 'all'}`}>
+                <Download />
+                Export CSV
+              </a>
+            </Button>
+          ) : undefined
         }
       />
       {report.total === 0 ? (
@@ -183,6 +194,29 @@ export default async function AccuracyPage() {
               </CardContent>
             </Card>
           </div>
+
+          {report.picks.n > 0 ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">You against the model</CardTitle>
+                <CardDescription className="mt-1">Your picks on finished events, and how often the ensemble favourite won on the same events.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-3 gap-3 text-center">
+                <div>
+                  <p className="tnum text-2xl font-semibold">{formatInt(report.picks.n)}</p>
+                  <p className="text-xs text-muted-foreground">picks scored</p>
+                </div>
+                <div>
+                  <p className={cn('tnum text-2xl font-semibold', report.picks.correct >= report.picks.modelCorrect ? 'text-success' : '')}>{Math.round((report.picks.correct / report.picks.n) * 100)}%</p>
+                  <p className="text-xs text-muted-foreground">you were right</p>
+                </div>
+                <div>
+                  <p className="tnum text-2xl font-semibold">{Math.round((report.picks.modelCorrect / report.picks.n) * 100)}%</p>
+                  <p className="text-xs text-muted-foreground">the model was right</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           {report.upsets.length > 0 ? (
             <Card>

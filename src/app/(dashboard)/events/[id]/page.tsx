@@ -17,6 +17,7 @@ export default async function EventPage({ params }: { params: { id: string } }) 
         predictions: { orderBy: [{ modelKey: 'asc' }, { version: 'desc' }] },
         lineups: true,
         stats: true,
+        pick: true,
       },
     }),
   );
@@ -79,6 +80,7 @@ export default async function EventPage({ params }: { params: { id: string } }) 
       homeForm={(homeForm.ok ? homeForm.data : []).map(serializeEvent)}
       awayForm={(awayForm.ok ? awayForm.data : []).map(serializeEvent)}
       headlines={(news.ok ? news.data : []).map((n) => ({ teamId: n.teamId ?? '', title: n.title, url: n.url, source: n.source, publishedAt: n.publishedAt.toISOString() }))}
+      pick={e.pick ? { outcome: e.pick.outcome, predictedScore: e.pick.predictedScore, note: e.pick.note } : null}
     />
   );
 }

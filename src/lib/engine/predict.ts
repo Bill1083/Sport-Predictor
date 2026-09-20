@@ -224,6 +224,15 @@ export async function computeOutputs(models: SportModels, event: EventForPredict
   });
   if (models.ml) probs.ml = predictLogistic(models.ml, features);
 
+  // Market implied probabilities, when the odds benchmark is on and a snapshot exists.
+  const snapshot = await withDatabase(() =>
+    prisma.oddsSnapshot.findFirst({ where: { eventId: event.id, takenAt: { gte: new Date(Date.now() - 3 * 86_400_000) } }, orderBy: { takenAt: 'desc' } }),
+  );
+  if (snapshot.ok && snapshot.data) {
+    const implied = parseJson<ProbMap>(snapshot.data.impliedJson, {});
+    if (outcomes.every((o) => typeof implied[o] === 'number')) probs.market = implied;
+  }
+
   const members: Member[] = Object.entries(probs)
     .filter(([key]) => models.weights[key] !== undefined)
     .map(([key, p]) => ({ key, probs: p, weight: models.weights[key] }));

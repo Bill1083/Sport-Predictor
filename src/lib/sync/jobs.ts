@@ -14,16 +14,18 @@ import { registerJob } from '@/lib/jobs/registry';
 import type { JobHandler, JobProgress, JobResult, JobScope } from '@/lib/jobs/types';
 import { parseJson, prisma } from '@/lib/prisma';
 import { pruneCache } from '@/lib/providers/http';
+import { consensus, fetchOdds, matches as oddsMatches } from '@/lib/providers/odds-api';
 import { forecastAt } from '@/lib/providers/open-meteo';
 import { BudgetExhaustedError, ProviderError, type SportsDataProvider } from '@/lib/providers/provider';
 import { providerByKey, providersFor } from '@/lib/providers/registry';
 import { TheSportsDbProvider } from '@/lib/providers/thesportsdb';
-import { getSettingsForSports } from '@/lib/settings';
+import { getGlobalSettings, getSettingsForSports } from '@/lib/settings';
 import { isSportKey, type SportKey } from '@/lib/sports/registry';
 import {
   competitionRefFor,
   eventRefFor,
   eventsMissingStats,
+  providerIdOf,
   seedCuratedCompetitions,
   syncInjuries,
   upsertCompetition,
@@ -158,7 +160,7 @@ const catalogue: JobHandler = {
 // ---------------------------------------------------------------------------
 
 const SEASON_LOOKBACK_DAYS = 400;
-const FIXTURE_HORIZON_DAYS = 21;
+const FIXTURE_HORIZON_DAYS = 365;
 
 type WindowFor = (competition: Competition) => { from: Date; to: Date };
 
@@ -207,7 +209,7 @@ const fixtures: JobHandler = {
   perSport: true,
   async run(scope, progress) {
     const now = Date.now();
-    // The whole current season plus three weeks ahead. Providers serve a
+    // The whole current season, past and future. Providers serve a
     // season in one request whatever the date range, so this costs no more
     // than a narrow window and keeps the table and form guide complete.
     return syncWindow(
@@ -439,10 +441,61 @@ const backfill: JobHandler = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// sync:odds - bookmaker consensus for the comparison column (optional, daily)
+// ---------------------------------------------------------------------------
+
+const odds: JobHandler = {
+  kind: 'SYNC',
+  label: 'Odds benchmark',
+  defaultIntervalMinutes: 24 * 60,
+  perSport: true,
+  async run(scope, progress) {
+    const global = await getGlobalSettings();
+    if (!global.oddsEnabled) return { status: 'OK', message: 'odds benchmark is off in Settings' };
+    if (!env.oddsApiKey) return { status: 'OK', message: 'ODDS_API_KEY is not configured' };
+    const tally: Tally = { ok: 0, failed: 0, budget: false, notes: [] };
+    const now = Date.now();
+    let stored = 0;
+    for (const sportKey of await enabledSports(scope)) {
+      const competitions = (await followedCompetitions(sportKey, scope)).filter((c) => providerIdOf(c, 'odds-api'));
+      await progress.phase(`odds for ${sportKey}`, competitions.length);
+      for (const competition of competitions) {
+        const upcoming = await prisma.event.findMany({
+          where: { competitionId: competition.id, status: 'SCHEDULED', startsAt: { gte: new Date(now), lte: new Date(now + 7 * 86_400_000) } },
+          include: { homeTeam: { select: { name: true } }, awayTeam: { select: { name: true } } },
+        });
+        if (upcoming.length === 0) {
+          await progress.tick();
+          continue;
+        }
+        const proceed = await attempt(tally, progress, `odds-api ${competition.name}`, async () => {
+          const events = await fetchOdds(providerIdOf(competition, 'odds-api') as string);
+          for (const ours of upcoming) {
+            if (!ours.homeTeam || !ours.awayTeam) continue;
+            const found = events.find((e) => oddsMatches(e, { home: ours.homeTeam!.name, away: ours.awayTeam!.name, startsAt: ours.startsAt }));
+            const summary = found ? consensus(found) : null;
+            if (!summary) continue;
+            await prisma.oddsSnapshot.create({ data: { eventId: ours.id, source: 'odds-api', bookmakers: summary.bookmakers, impliedJson: JSON.stringify(summary.implied) } });
+            stored += 1;
+          }
+        });
+        await progress.tick();
+        if (!proceed) break;
+      }
+      if (tally.budget) break;
+    }
+    const result = outcome(tally, 'competitions');
+    result.message = `${stored} snapshots (${result.message})`;
+    return result;
+  },
+};
+
 registerJob('sync:catalogue', catalogue);
 registerJob('sync:fixtures', fixtures);
 registerJob('sync:results', results);
 registerJob('sync:context', context);
+registerJob('sync:odds', odds);
 registerJob('backfill', backfill);
 
 export const SYNC_JOBS = ['sync:catalogue', 'sync:fixtures', 'sync:results', 'sync:context', 'backfill'] as const;

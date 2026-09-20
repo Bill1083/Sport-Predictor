@@ -106,6 +106,14 @@ export function defaultModelSettings(sport: SportKey): ModelSettings[] {
       help: 'Multinomial logistic regression over rating gap, form, rest, head-to-head, table position and absences. Trained at refit from a walk-forward pass; skipped until 200 rows exist.',
     },
     {
+      key: 'market',
+      label: 'Market implied',
+      enabled: true,
+      weight: 0,
+      params: {},
+      help: 'Bookmaker consensus with the overround removed, when the odds benchmark is on. Shown for comparison; give it a weight only if you want it blended.',
+    },
+    {
       key: 'ai',
       label: 'AI',
       enabled: true,
