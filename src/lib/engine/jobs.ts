@@ -33,6 +33,8 @@ const predict: JobHandler = {
         eventIds: Array.isArray(scope.options?.eventIds) ? (scope.options?.eventIds as string[]) : undefined,
         force: scope.options?.force === true,
         log: (line) => progress.log(line),
+        runId: progress.runId,
+        onCost: (usd) => progress.cost(usd),
         onProgress: async (done, total) => {
           if (done === 1) await progress.phase(`predicting ${sportKey}`, total);
           await progress.tick();

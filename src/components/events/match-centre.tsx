@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { CloudSun, HeartPulse, MapPin, Sparkles, Users } from 'lucide-react';
+import { CloudSun, HeartPulse, MapPin, Newspaper, Sparkles, Users } from 'lucide-react';
 
 import { EventCard } from '@/components/events/event-card';
 import { PredictButton } from '@/components/events/predict-button';
@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import type { EventDto, PredictionDto } from '@/lib/serialize';
 import { MODEL_LABELS, sportDefinition } from '@/lib/sports/registry';
 import type { TableRow } from '@/lib/standings';
-import { formatDateTime } from '@/lib/time';
+import { formatDate, formatDateTime } from '@/lib/time';
 import { cn, ordinal } from '@/lib/utils';
 
 export interface MatchCentreProps {
@@ -23,6 +23,7 @@ export interface MatchCentreProps {
   h2h: EventDto[];
   homeForm: EventDto[];
   awayForm: EventDto[];
+  headlines: { teamId: string; title: string; url: string; source: string; publishedAt: string }[];
 }
 
 function formString(team: string, events: EventDto[]): string {
@@ -43,7 +44,7 @@ function formString(team: string, events: EventDto[]): string {
  * The match page. Everything the models saw and everything they concluded,
  * side by side; after the result, what each model scored.
  */
-export function MatchCentre({ event, predictions, table, injuries, lineups, stats, h2h, homeForm, awayForm }: MatchCentreProps) {
+export function MatchCentre({ event, predictions, table, injuries, lineups, stats, h2h, homeForm, awayForm, headlines }: MatchCentreProps) {
   const sport = sportDefinition(event.sportKey);
   const home = event.home;
   const away = event.away;
@@ -165,8 +166,11 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
                 {ensemble && ensemble.factors.length > 0 ? (
                   <ul className="space-y-1.5">
                     {ensemble.factors.map((f) => (
-                      <li key={f.key} className="flex items-center gap-2 text-sm">
-                        <span className="w-28 shrink-0 truncate text-muted-foreground">{f.label}</span>
+                      <li key={f.key} className="flex items-center gap-2 text-sm" title={f.note ?? undefined}>
+                        <span className="flex w-28 shrink-0 items-center gap-1 truncate text-muted-foreground">
+                          {f.source === 'ai' ? <span className="rounded bg-[var(--chart-ai)]/20 px-1 text-[9px] font-bold text-[var(--chart-ai)]">AI</span> : null}
+                          <span className="truncate">{f.label}</span>
+                        </span>
                         <span className="relative h-2 flex-1 rounded-full bg-muted">
                           <span
                             className={cn('absolute top-0 h-2 rounded-full', f.effect >= 0 ? 'bg-home' : 'bg-away')}
@@ -286,6 +290,36 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
                     </div>
                   );
                 })}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {/* Headlines the AI read */}
+          {headlines.length > 0 ? (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Newspaper className="size-4" />
+                  Headlines
+                </CardTitle>
+                <CardDescription className="mt-1">What the AI layer read before its assessment.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-1.5 text-xs">
+                  {headlines.map((h) => (
+                    <li key={h.url} className="flex items-start gap-2">
+                      <span className="mt-1 size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
+                      <span className="min-w-0">
+                        <a href={h.url} target="_blank" rel="noreferrer" className="hover:underline">
+                          {h.title}
+                        </a>
+                        <span className="block text-muted-foreground">
+                          {[h.teamId === home?.id ? home?.shortName ?? home?.name : away?.shortName ?? away?.name, h.source, formatDate(h.publishedAt)].filter(Boolean).join(' - ')}
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </CardContent>
             </Card>
           ) : null}

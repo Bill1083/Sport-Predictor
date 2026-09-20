@@ -24,7 +24,7 @@ export default async function EventPage({ params }: { params: { id: string } }) 
   const e = row.data;
   const teamIds = [e.homeTeamId, e.awayTeamId].filter((id): id is string => Boolean(id));
 
-  const [table, injuries, h2h, homeForm, awayForm] = await Promise.all([
+  const [table, injuries, h2h, homeForm, awayForm, news] = await Promise.all([
     competitionTable(e.competitionId, e.season, e.status === 'FINISHED' ? e.startsAt : undefined),
     withDatabase(() => prisma.injury.findMany({ where: { teamId: { in: teamIds }, resolvedAt: null }, orderBy: { reportedAt: 'desc' } })),
     withDatabase(() =>
@@ -58,6 +58,13 @@ export default async function EventPage({ params }: { params: { id: string } }) 
         take: 5,
       }),
     ),
+    withDatabase(() =>
+      prisma.newsItem.findMany({
+        where: { teamId: { in: teamIds }, publishedAt: { gte: new Date(Date.now() - 10 * 86_400_000) } },
+        orderBy: { publishedAt: 'desc' },
+        take: 12,
+      }),
+    ),
   ]);
 
   return (
@@ -71,6 +78,7 @@ export default async function EventPage({ params }: { params: { id: string } }) 
       h2h={(h2h.ok ? h2h.data : []).map(serializeEvent)}
       homeForm={(homeForm.ok ? homeForm.data : []).map(serializeEvent)}
       awayForm={(awayForm.ok ? awayForm.data : []).map(serializeEvent)}
+      headlines={(news.ok ? news.data : []).map((n) => ({ teamId: n.teamId ?? '', title: n.title, url: n.url, source: n.source, publishedAt: n.publishedAt.toISOString() }))}
     />
   );
 }

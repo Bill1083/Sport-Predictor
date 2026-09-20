@@ -10,6 +10,7 @@
 
 import type { Event } from '@prisma/client';
 
+import { assessEvent } from '@/lib/ai/assess';
 import { loadModelConfigs, saveModelState, type LoadedModel } from '@/lib/engine/config';
 import { fitDixonColes, dcRates, type DcParams, type DcState } from '@/lib/engine/dixon-coles';
 import { computeElo, eloPredict, eloRating, type EloParams, type EloState } from '@/lib/engine/elo';
@@ -35,6 +36,9 @@ export interface PredictOptions {
   force?: boolean;
   onProgress?: (done: number, total: number) => Promise<void> | void;
   log?: (line: string) => void;
+  runId?: string | null;
+  /** Called with the USD cost of each AI call made during the pass. */
+  onCost?: (usd: number) => void;
 }
 
 export interface PredictSummary {
@@ -44,7 +48,7 @@ export interface PredictSummary {
 }
 
 /** Everything fitted once per pass and reused for every event. */
-interface SportModels {
+export interface SportModels {
   sport: SportDefinition;
   configs: Map<string, LoadedModel>;
   history: HistoryMatch[];
@@ -154,6 +158,7 @@ export interface ModelOutputs {
   features: Record<string, number>;
   ensemble: ProbMap;
   confidence: number;
+  narrative?: string | null;
 }
 
 type EventForPrediction = Event & { competition: { id: string; currentSeason: string | null } };
@@ -287,6 +292,7 @@ export async function storePrediction(event: Event, outputs: ModelOutputs, mode:
         statsJson: outputs.stats ? JSON.stringify(outputs.stats) : null,
         factorsJson: JSON.stringify(outputs.factors),
         confidence: outputs.confidence,
+        narrative: outputs.narrative ?? null,
       },
     }),
   ]);
@@ -303,7 +309,12 @@ export async function predictSport(sportKey: SportKey, options: PredictOptions =
       where: options.eventIds
         ? { id: { in: options.eventIds } }
         : { sportKey, status: 'SCHEDULED', startsAt: { gte: new Date(now.getTime() - 60 * 60_000), lte: new Date(now.getTime() + horizonDays * 86_400_000) }, competition: { followed: true } },
-      include: { competition: { select: { id: true, currentSeason: true } }, predictions: { where: { modelKey: 'ensemble' }, orderBy: { version: 'desc' }, take: 1 } },
+      include: {
+        competition: { select: { id: true, name: true, currentSeason: true } },
+        homeTeam: { select: { id: true, name: true } },
+        awayTeam: { select: { id: true, name: true } },
+        predictions: { where: { modelKey: 'ensemble' }, orderBy: { version: 'desc' }, take: 1 },
+      },
       orderBy: { startsAt: 'asc' },
     }),
   );
@@ -327,6 +338,22 @@ export async function predictSport(sportKey: SportKey, options: PredictOptions =
   for (const event of due) {
     const outputs = await computeOutputs(models, event);
     if (outputs) {
+      if (sportSettings.mode !== 'ALGORITHM') {
+        const assessment = await assessEvent({ event, outputs, models, mode: sportSettings.mode, settings: global, runId: options.runId, log: options.log });
+        if (assessment) {
+          options.onCost?.(assessment.costUsd);
+          if (Object.keys(assessment.aiProbs).length > 0) outputs.probs.ai = assessment.aiProbs;
+          outputs.ensemble = assessment.probs;
+          outputs.factors = [...outputs.factors, ...assessment.factors];
+          outputs.narrative = assessment.narrative;
+          if (assessment.expectedScore && outputs.score) {
+            outputs.score = { ...outputs.score, mostLikely: { ...assessment.expectedScore, p: outputs.score.mostLikely.p } };
+          }
+          const outcomes = outcomesFor(models.sport);
+          const maxP = Math.max(...outcomes.map((o) => outputs.ensemble[o] ?? 0));
+          outputs.confidence = Math.round(((maxP - 1 / outcomes.length) / (1 - 1 / outcomes.length)) * 100) / 100;
+        }
+      }
       await storePrediction(event, outputs, sportSettings.mode, now);
       summary.predicted += 1;
     }
