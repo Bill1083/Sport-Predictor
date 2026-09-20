@@ -1,0 +1,551 @@
+// ScoreSage - Prisma schema (SQLite)
+// Zero-config persistence for a single-VPS deployment. Every row that a
+// provider adapter writes carries `providerIdsJson`, a map of provider key to
+// that provider's id, so the same team, competition or event can be linked
+// across football-data.org, API-Sports, TheSportsDB and the CSV archives.
+
+generator client {
+  provider        = "prisma-client-js"
+  // Engine-free client: queries are compiled in-process and run through the
+  // better-sqlite3 driver adapter, so the same build works on Windows ARM64
+  // laptops and on x64 / ARM64 Linux hosts without a Rust query engine.
+  engineType      = "client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// One sport the dashboard knows about. The static definition (shape, stats,
+/// models) lives in lib/sports/registry.ts; this row holds what the user chose.
+model Sport {
+  key       String   @id // football | rugby_union | rugby_league | cricket | tennis | f1 | ...
+  name      String
+  enabled   Boolean  @default(false)
+  /// ALGORITHM | AI | HYBRID
+  mode      String   @default("HYBRID")
+  sortOrder Int      @default(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  competitions Competition[]
+
+  @@map("sports")
+}
+
+/// A league, cup, tour or championship within a sport.
+model Competition {
+  id              String    @id @default(cuid())
+  sportKey        String
+  slug            String
+  name            String
+  shortName       String?
+  country         String?
+  /// LEAGUE | CUP | INTERNATIONAL | TOUR | CHAMPIONSHIP
+  type            String    @default("LEAGUE")
+  /// Label of the season currently being followed, e.g. "2026" or "2026-27".
+  currentSeason   String?
+  followed        Boolean   @default(false)
+  tier            Int       @default(1)
+  logoUrl         String?
+  /// Provider key -> that provider's competition id.
+  providerIdsJson String    @default("{}")
+  lastSyncedAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sport  Sport   @relation(fields: [sportKey], references: [key], onDelete: Cascade)
+  events Event[]
+
+  @@unique([sportKey, slug])
+  @@index([sportKey, followed])
+  @@map("competitions")
+}
+
+/// A team, or for individual sports a player (tennis) or a driver /
+/// constructor (F1). `kind` says which.
+model Team {
+  id              String   @id @default(cuid())
+  sportKey        String
+  /// TEAM | PLAYER | DRIVER | CONSTRUCTOR
+  kind            String   @default("TEAM")
+  name            String
+  shortName       String?
+  /// Three-letter code where the sport has one (ARS, MCI, VER).
+  code            String?
+  country         String?
+  crestUrl        String?
+  venueId         String?
+  founded         Int?
+  providerIdsJson String   @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  venue        Venue?             @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  aliases      TeamAlias[]
+  players      Player[]
+  ratings      Rating[]
+  injuries     Injury[]
+  homeEvents   Event[]            @relation("HomeEvents")
+  awayEvents   Event[]            @relation("AwayEvents")
+  participants EventParticipant[]
+  stats        EventStats[]
+  lineups      Lineup[]
+  news         NewsItem[]
+
+  @@index([sportKey, name])
+  @@index([sportKey, kind])
+  @@map("teams")
+}
+
+/// One name or external id a provider uses for a team. The linking table:
+/// every adapter resolves its own ids and names through here.
+model TeamAlias {
+  id         String   @id @default(cuid())
+  provider   String
+  externalId String?
+  name       String
+  teamId     String
+  createdAt  DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, externalId])
+  @@index([provider, name])
+  @@index([teamId])
+  @@map("team_aliases")
+}
+
+model Player {
+  id              String    @id @default(cuid())
+  sportKey        String
+  teamId          String?
+  name            String
+  position        String?
+  shirtNumber     Int?
+  nationality     String?
+  birthDate       DateTime?
+  /// Share of the team's available minutes this season, 0..1. Drives the key-absence index.
+  minutesShare    Float     @default(0)
+  rating          Float?
+  photoUrl        String?
+  /// JSON: season stats the sport model reads (goals, xG, shots, assists...).
+  statsJson       String    @default("{}")
+  providerIdsJson String    @default("{}")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  team     Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  injuries Injury[]
+
+  @@index([teamId])
+  @@index([sportKey, name])
+  @@map("players")
+}
+
+model Venue {
+  id              String  @id @default(cuid())
+  name            String
+  city            String?
+  country         String?
+  lat             Float?
+  lon             Float?
+  capacity        Int?
+  surface         String?
+  indoor          Boolean @default(false)
+  providerIdsJson String  @default("{}")
+
+  teams  Team[]
+  events Event[]
+
+  @@index([name])
+  @@map("venues")
+}
+
+/// A fixture: two teams, two players, or (F1) a race with many entrants.
+model Event {
+  id              String    @id @default(cuid())
+  sportKey        String
+  competitionId   String
+  season          String
+  round           String?
+  stage           String?
+  startsAt        DateTime
+  /// SCHEDULED | LIVE | FINISHED | POSTPONED | CANCELLED
+  status          String    @default("SCHEDULED")
+  minute          Int?
+  venueId         String?
+  homeTeamId      String?
+  awayTeamId      String?
+  /// Sport-specific: cricket TEST|ODI|T20, tennis BO3|BO5, rugby etc.
+  format          String?
+  referee         String?
+  /// JSON: { homeScore, awayScore, winner: "HOME"|"AWAY"|"DRAW", periods, extra... }
+  resultJson      String    @default("{}")
+  /// JSON: { tempC, windKph, rainProb, precipMm, conditions, fetchedAt }
+  weatherJson     String?
+  providerIdsJson String    @default("{}")
+  lastSyncedAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  competition  Competition        @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  venue        Venue?             @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  homeTeam     Team?              @relation("HomeEvents", fields: [homeTeamId], references: [id], onDelete: SetNull)
+  awayTeam     Team?              @relation("AwayEvents", fields: [awayTeamId], references: [id], onDelete: SetNull)
+  participants EventParticipant[]
+  stats        EventStats[]
+  lineups      Lineup[]
+  predictions  Prediction[]
+  evaluations  Evaluation[]
+  odds         OddsSnapshot[]
+  news         NewsItem[]
+  pick         UserPick?
+  aiCalls      AiCall[]
+
+  @@index([sportKey, startsAt])
+  @@index([competitionId, season, round])
+  @@index([status, startsAt])
+  @@index([homeTeamId, startsAt])
+  @@index([awayTeamId, startsAt])
+  @@map("events")
+}
+
+/// Entrants of a multi-competitor event (F1) or the two sides of a match,
+/// with their finishing data once known.
+model EventParticipant {
+  id             String  @id @default(cuid())
+  eventId        String
+  teamId         String
+  /// HOME | AWAY | ENTRANT
+  side           String  @default("ENTRANT")
+  gridPosition   Int?
+  finishPosition Int?
+  score          Float?
+  statusNote     String?
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  team  Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, teamId])
+  @@map("event_participants")
+}
+
+/// Per-team statistics of a finished event: possession, shots, passes, etc.
+model EventStats {
+  id        String   @id @default(cuid())
+  eventId   String
+  teamId    String
+  statsJson String   @default("{}")
+  source    String   @default("")
+  updatedAt DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  team  Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, teamId])
+  @@map("event_stats")
+}
+
+model Lineup {
+  id           String   @id @default(cuid())
+  eventId      String
+  teamId       String
+  formation    String?
+  coach        String?
+  startersJson String   @default("[]")
+  benchJson    String   @default("[]")
+  confirmed    Boolean  @default(false)
+  source       String   @default("")
+  updatedAt    DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  team  Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, teamId])
+  @@map("lineups")
+}
+
+model Injury {
+  id             String    @id @default(cuid())
+  teamId         String
+  playerId       String?
+  playerName     String
+  type           String    @default("")
+  /// OUT | DOUBTFUL | QUESTIONABLE | SUSPENDED
+  status         String    @default("OUT")
+  reason         String?
+  source         String    @default("")
+  reportedAt     DateTime  @default(now())
+  expectedReturn DateTime?
+  resolvedAt     DateTime?
+
+  team   Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  player Player? @relation(fields: [playerId], references: [id], onDelete: SetNull)
+
+  @@index([teamId, resolvedAt])
+  @@map("injuries")
+}
+
+/// Time series of rating values per team and model (ELO, DC_ATTACK, ...).
+model Rating {
+  id            String   @id @default(cuid())
+  sportKey      String
+  teamId        String
+  model         String
+  competitionId String?
+  value         Float
+  /// JSON: model-specific extras, e.g. games played, deviation.
+  extraJson     String?
+  asOf          DateTime
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId, model, asOf])
+  @@index([sportKey, model, asOf])
+  @@map("ratings")
+}
+
+/// One model's prediction for one event, versioned as kickoff approaches.
+/// The last version made before kickoff is `isFinal` and is the one scored.
+model Prediction {
+  id               String   @id @default(cuid())
+  eventId          String
+  /// elo | poisson | dixon-coles | stats | ml | ai | ensemble
+  modelKey         String
+  version          Int      @default(1)
+  /// ALGORITHM | AI | HYBRID
+  mode             String   @default("ALGORITHM")
+  minutesToKickoff Int?
+  /// JSON: outcome -> probability, e.g. { HOME: 0.51, DRAW: 0.24, AWAY: 0.25 } or entrant ids for races.
+  probsJson        String   @default("{}")
+  /// JSON: { expected: {home, away}, mostLikely: {home, away, p}, top: [...], lines: {...} }
+  scoreJson        String?
+  /// JSON: stat key -> { home: {mean, low, high}, away: {...} }
+  statsJson        String?
+  /// JSON: [{ key, label, effect, note, source }]
+  factorsJson      String?
+  narrative        String?
+  confidence       Float?
+  aiCallId         String?
+  isFinal          Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  evaluation Evaluation?
+
+  @@index([eventId, modelKey, version])
+  @@index([modelKey, createdAt])
+  @@index([createdAt])
+  @@map("predictions")
+}
+
+model Evaluation {
+  id             String   @id @default(cuid())
+  predictionId   String   @unique
+  eventId        String
+  modelKey       String
+  brier          Float
+  logLoss        Float
+  rps            Float?
+  correct        Boolean
+  exactScore     Boolean?
+  /// JSON: stat key -> absolute error / interval hit.
+  statsErrorJson String?
+  createdAt      DateTime @default(now())
+
+  prediction Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  event      Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([modelKey, createdAt])
+  @@map("evaluations")
+}
+
+/// Optional: bookmaker consensus, devigged, for the calibration benchmark.
+model OddsSnapshot {
+  id          String   @id @default(cuid())
+  eventId     String
+  source      String
+  bookmakers  Int      @default(0)
+  /// JSON: outcome -> implied probability after removing the overround.
+  impliedJson String   @default("{}")
+  rawJson     String?
+  takenAt     DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, takenAt])
+  @@map("odds_snapshots")
+}
+
+/// Parameters, fitted state and ensemble weight of one model for one sport
+/// (and optionally one competition; "" means every competition).
+model ModelConfig {
+  id            String    @id @default(cuid())
+  sportKey      String
+  competitionId String    @default("")
+  modelKey      String
+  paramsJson    String    @default("{}")
+  stateJson     String?
+  weight        Float     @default(1)
+  enabled       Boolean   @default(true)
+  fittedAt      DateTime?
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([sportKey, competitionId, modelKey])
+  @@map("model_configs")
+}
+
+/// One execution of a job: a sync, a prediction pass, an evaluation, a refit
+/// or a backtest. Live progress is written as it works.
+model ModelRun {
+  id            String    @id @default(cuid())
+  /// SYNC | PREDICT | EVALUATE | REFIT | BACKTEST | BACKFILL
+  kind          String
+  /// The job name, e.g. sync:fixtures.
+  job           String    @default("")
+  sportKey      String?
+  competitionId String?
+  /// schedule | manual | cron
+  trigger       String    @default("manual")
+  /// RUNNING | OK | PARTIAL | FAILED
+  status        String    @default("RUNNING")
+  phase         String    @default("queued")
+  progressDone  Int       @default(0)
+  progressTotal Int       @default(0)
+  metricsJson   String?
+  log           String    @default("")
+  error         String?
+  costUsd       Float     @default(0)
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+
+  calls AiCall[]
+
+  @@index([startedAt])
+  @@index([kind, startedAt])
+  @@map("model_runs")
+}
+
+/// Scheduler bookkeeping: when each recurring job last ran and is next due.
+model SyncJob {
+  id              String    @id @default(cuid())
+  job             String
+  sportKey        String
+  competitionId   String    @default("")
+  intervalMinutes Int       @default(1440)
+  lastRunAt       DateTime?
+  nextDueAt       DateTime?
+  lastStatus      String?
+  lastError       String?
+  enabled         Boolean   @default(true)
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([job, sportKey, competitionId])
+  @@index([enabled, nextDueAt])
+  @@map("sync_jobs")
+}
+
+/// Requests made against each provider per day, for the budget ledger.
+model ProviderUsage {
+  provider  String
+  dayKey    String
+  requests  Int      @default(0)
+  errors    Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@id([provider, dayKey])
+  @@map("provider_usage")
+}
+
+/// Cached provider responses so re-syncs and replays cost no budget.
+model HttpCache {
+  key       String   @id
+  url       String
+  status    Int
+  body      String
+  fetchedAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([expiresAt])
+  @@map("http_cache")
+}
+
+/// One LLM request, with the real token usage it reported.
+model AiCall {
+  id            String   @id @default(cuid())
+  runId         String?
+  eventId       String?
+  /// context | adjust | predict | explain | review
+  purpose       String
+  /// gemini | anthropic
+  provider      String
+  model         String
+  promptTokens  Int      @default(0)
+  outputTokens  Int      @default(0)
+  thoughtTokens Int      @default(0)
+  cachedTokens  Int      @default(0)
+  costUsd       Float    @default(0)
+  latencyMs     Int      @default(0)
+  ok            Boolean  @default(true)
+  errorCode     String?
+  createdAt     DateTime @default(now())
+
+  run   ModelRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+  event Event?    @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([eventId])
+  @@map("ai_calls")
+}
+
+/// A headline gathered for a team or event, with whatever the AI extracted.
+model NewsItem {
+  id            String   @id @default(cuid())
+  sportKey      String
+  teamId        String?
+  eventId       String?
+  title         String
+  url           String
+  source        String   @default("")
+  publishedAt   DateTime
+  extractedJson String?
+  createdAt     DateTime @default(now())
+
+  team  Team?  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  event Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([url])
+  @@index([eventId])
+  @@index([teamId, publishedAt])
+  @@map("news_items")
+}
+
+/// Your own call on an event, to compare with the model afterwards.
+model UserPick {
+  id             String   @id @default(cuid())
+  eventId        String   @unique
+  outcome        String
+  predictedScore String?
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@map("user_picks")
+}
+
+/// Key/value store for everything editable from Settings and the Lab.
+/// `scope` is "global" or a sport key.
+model Setting {
+  scope     String   @default("global")
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@id([scope, key])
+  @@map("settings")
+}

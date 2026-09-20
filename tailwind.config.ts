@@ -1,0 +1,97 @@
+import type { Config } from 'tailwindcss';
+
+const config: Config = {
+  darkMode: ['class'],
+  content: ['./src/**/*.{ts,tsx,mdx}'],
+  theme: {
+    container: {
+      center: true,
+      padding: '1rem',
+      screens: { '2xl': '1400px' },
+    },
+    extend: {
+      colors: {
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary))',
+          foreground: 'hsl(var(--secondary-foreground))',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent))',
+          foreground: 'hsl(var(--accent-foreground))',
+        },
+        popover: {
+          DEFAULT: 'hsl(var(--popover))',
+          foreground: 'hsl(var(--popover-foreground))',
+        },
+        card: {
+          DEFAULT: 'hsl(var(--card))',
+          foreground: 'hsl(var(--card-foreground))',
+        },
+        // Semantic status colours used across badges and tiles.
+        success: 'hsl(var(--success))',
+        danger: 'hsl(var(--danger))',
+        warning: 'hsl(var(--warning))',
+        gold: 'hsl(var(--gold))',
+        // Probability bar and chart series.
+        home: 'var(--chart-home)',
+        draw: 'var(--chart-draw)',
+        away: 'var(--chart-away)',
+      },
+      borderRadius: {
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
+      },
+      fontFamily: {
+        sans: ['var(--font-sans)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        display: ['var(--font-display)', 'var(--font-sans)', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-mono)', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+      },
+      keyframes: {
+        'accordion-down': {
+          from: { height: '0' },
+          to: { height: 'var(--radix-accordion-content-height)' },
+        },
+        'accordion-up': {
+          from: { height: 'var(--radix-accordion-content-height)' },
+          to: { height: '0' },
+        },
+        'pulse-ring': {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.4' },
+        },
+        // The indefinite progress bar, for work whose total is not yet known.
+        sweep: {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(300%)' },
+        },
+      },
+      animation: {
+        'accordion-down': 'accordion-down 0.2s ease-out',
+        'accordion-up': 'accordion-up 0.2s ease-out',
+        'pulse-ring': 'pulse-ring 2s ease-in-out infinite',
+        sweep: 'sweep 1.6s ease-in-out infinite',
+      },
+    },
+  },
+  plugins: [require('tailwindcss-animate')],
+};
+
+export default config;

@@ -1,0 +1,186 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ScoreSage theme: "floodlit stadium" by default (near-black with a green
+ * cast, pitch-green primary, trophy-gold accent), "matchday programme" in
+ * light mode. Warning is the yellow card, danger the red card.
+ */
+@layer base {
+  :root {
+    --background: 40 30% 98%;
+    --foreground: 160 20% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 160 20% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 160 20% 10%;
+
+    --primary: 150 60% 30%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 150 14% 93%;
+    --secondary-foreground: 160 20% 16%;
+
+    --muted: 150 14% 93%;
+    --muted-foreground: 160 10% 40%;
+
+    --accent: 42 90% 92%;
+    --accent-foreground: 36 80% 26%;
+
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 150 14% 86%;
+    --input: 150 14% 86%;
+    --ring: 150 60% 30%;
+
+    /* Semantic status colours: success, yellow card, red card, trophy gold. */
+    --success: 152 60% 34%;
+    --danger: 0 72% 48%;
+    --warning: 44 92% 40%;
+    --gold: 40 90% 45%;
+
+    /* Chart series, fixed order. */
+    --chart-home: #1f8f5a;
+    --chart-draw: #8a939b;
+    --chart-away: #2f6fd6;
+    --chart-model: #1f8f5a;
+    --chart-market: #d8a21b;
+    --chart-baseline: #b7bcc2;
+    --chart-ai: #8b5cf6;
+
+    --radius: 0.65rem;
+  }
+
+  .dark {
+    --background: 150 20% 5%;
+    --foreground: 140 15% 95%;
+
+    --card: 150 16% 8%;
+    --card-foreground: 140 15% 95%;
+
+    --popover: 150 18% 7%;
+    --popover-foreground: 140 15% 95%;
+
+    --primary: 145 70% 45%;
+    --primary-foreground: 150 30% 6%;
+
+    --secondary: 150 12% 14%;
+    --secondary-foreground: 140 15% 95%;
+
+    --muted: 150 12% 13%;
+    --muted-foreground: 145 10% 62%;
+
+    --accent: 150 12% 16%;
+    --accent-foreground: 42 95% 65%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 150 12% 17%;
+    --input: 150 12% 19%;
+    --ring: 145 70% 45%;
+
+    --success: 145 65% 48%;
+    --danger: 0 78% 60%;
+    --warning: 48 96% 52%;
+    --gold: 42 95% 55%;
+
+    --chart-home: #34c47a;
+    --chart-draw: #7f8a93;
+    --chart-away: #4d8cf5;
+    --chart-model: #34c47a;
+    --chart-market: #f0b429;
+    --chart-baseline: #4b545c;
+    --chart-ai: #a78bfa;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1;
+    /* Room for the fixed mobile tab bar. */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
+  }
+
+  /* Tabular figures everywhere numbers are compared down a column. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+  }
+
+  /* Pitch lines behind page headers: a halfway line and the centre circle. */
+  .pitch-backdrop {
+    background-image:
+      linear-gradient(
+        to right,
+        transparent calc(50% - 1px),
+        hsl(var(--primary) / 0.18) calc(50% - 1px),
+        hsl(var(--primary) / 0.18) calc(50% + 1px),
+        transparent calc(50% + 1px)
+      ),
+      radial-gradient(
+        circle at 50% 50%,
+        transparent 56px,
+        hsl(var(--primary) / 0.18) 56px,
+        hsl(var(--primary) / 0.18) 58px,
+        transparent 58px
+      ),
+      linear-gradient(to right, hsl(var(--border) / 0.35) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--border) / 0.35) 1px, transparent 1px);
+    background-size:
+      100% 100%,
+      100% 100%,
+      40px 40px,
+      40px 40px;
+    mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 30%, transparent 100%);
+  }
+
+  .font-display {
+    font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
+  }
+
+  .text-gold {
+    color: hsl(var(--gold));
+  }
+
+  .bg-gold {
+    background-color: hsl(var(--gold));
+  }
+}
