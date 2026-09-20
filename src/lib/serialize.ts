@@ -3,7 +3,7 @@
  * dates become ISO strings and JSON columns are parsed once, here.
  */
 
-import type { Competition, Event, ModelRun, Prediction, Sport, Team, Venue } from '@prisma/client';
+import type { Competition, Event, EventParticipant, ModelRun, Prediction, Sport, Team, Venue } from '@prisma/client';
 
 import { parseJson } from '@/lib/prisma';
 import type { SportIconKey } from '@/lib/sports/registry';
@@ -148,6 +148,8 @@ export interface EventDto {
   away: TeamDto | null;
   result: EventResult;
   weather: Weather | null;
+  /** Entrants of a multi-competitor event (F1), with grid and finishing positions. */
+  participants: { team: TeamDto; gridPosition: number | null; finishPosition: number | null; score: number | null; statusNote: string | null }[];
   /** The latest ensemble prediction, when one exists. */
   prediction: PredictionDto | null;
 }
@@ -158,6 +160,7 @@ export type EventWithRelations = Event & {
   awayTeam: (Team & { venue?: Venue | null }) | null;
   venue?: Venue | null;
   predictions?: Prediction[];
+  participants?: (EventParticipant & { team: Team })[];
 };
 
 export function serializeEvent(e: EventWithRelations): EventDto {
@@ -181,6 +184,10 @@ export function serializeEvent(e: EventWithRelations): EventDto {
     away: e.awayTeam ? serializeTeam(e.awayTeam) : null,
     result: parseResult(e.resultJson),
     weather: parseJson<Weather | null>(e.weatherJson, null),
+    participants: (e.participants ?? [])
+      .filter((p) => p.side === 'ENTRANT')
+      .sort((a, b) => (a.finishPosition ?? a.gridPosition ?? 99) - (b.finishPosition ?? b.gridPosition ?? 99))
+      .map((p) => ({ team: serializeTeam(p.team), gridPosition: p.gridPosition, finishPosition: p.finishPosition, score: p.score, statusNote: p.statusNote })),
     prediction: ensemble ? serializePrediction(ensemble) : null,
   };
 }
@@ -233,5 +240,6 @@ export const EVENT_INCLUDE = {
   homeTeam: { include: { venue: true } },
   awayTeam: { include: { venue: true } },
   venue: true,
+  participants: { where: { side: 'ENTRANT' }, include: { team: true } },
   predictions: { where: { modelKey: 'ensemble' }, orderBy: { version: 'desc' as const }, take: 1 },
 } as const;

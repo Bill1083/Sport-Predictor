@@ -8,9 +8,14 @@
 
 import { env } from '@/lib/env';
 import { ApiSportsFootballProvider } from '@/lib/providers/api-sports';
+import { ApiSportsRugbyProvider } from '@/lib/providers/api-sports-rugby';
+import { CricketDataProvider } from '@/lib/providers/cricketdata';
+import { EspnTennisProvider } from '@/lib/providers/espn-tennis';
 import { FootballDataProvider } from '@/lib/providers/football-data';
 import { FootballDataCoUkProvider } from '@/lib/providers/football-data-co-uk';
+import { JolpicaProvider } from '@/lib/providers/jolpica';
 import { MockProvider } from '@/lib/providers/mock';
+import { TennisArchiveProvider } from '@/lib/providers/tennis-archive';
 import type { Capability, ProviderKey, SportsDataProvider } from '@/lib/providers/provider';
 import { TheSportsDbProvider } from '@/lib/providers/thesportsdb';
 import type { SportKey } from '@/lib/sports/registry';
@@ -24,16 +29,21 @@ export function registerProvider(provider: SportsDataProvider): void {
 registerProvider(new MockProvider());
 registerProvider(new FootballDataProvider());
 registerProvider(new ApiSportsFootballProvider());
+registerProvider(new ApiSportsRugbyProvider());
 registerProvider(new TheSportsDbProvider());
 registerProvider(new FootballDataCoUkProvider());
+registerProvider(new JolpicaProvider());
+registerProvider(new TennisArchiveProvider());
+registerProvider(new EspnTennisProvider());
+registerProvider(new CricketDataProvider());
 
 /** Built-in preference per sport, best data source first. */
 const DEFAULT_ORDER: Record<string, ProviderKey[]> = {
   football: ['football-data', 'api-sports', 'thesportsdb', 'football-data-co-uk'],
-  rugby_union: ['api-sports', 'thesportsdb', 'espn'],
-  rugby_league: ['api-sports', 'thesportsdb', 'espn'],
+  rugby_union: ['api-sports-rugby', 'thesportsdb', 'espn'],
+  rugby_league: ['api-sports-rugby', 'thesportsdb', 'espn'],
   cricket: ['cricketdata', 'cricsheet', 'thesportsdb'],
-  tennis: ['espn', 'thesportsdb'],
+  tennis: ['tennis-archive', 'espn', 'thesportsdb'],
   f1: ['jolpica', 'openf1', 'thesportsdb'],
   basketball: ['espn', 'thesportsdb'],
   american_football: ['espn', 'thesportsdb'],
@@ -54,9 +64,9 @@ export function providerByKey(key: string): SportsDataProvider | undefined {
  * `preferred` is the comma-separated list from the sport's settings.
  */
 export function providersFor(sport: SportKey, capability: Capability, preferred = ''): SportsDataProvider[] {
-  if (env.mockSports) {
-    const mock = registry.get('mock');
-    return mock && mock.sports.includes(sport) && mock.capabilities.includes(capability) ? [mock] : [];
+  const mock = registry.get('mock');
+  if (env.mockSports && mock && mock.sports.includes(sport)) {
+    return mock.capabilities.includes(capability) ? [mock] : [];
   }
   const order: ProviderKey[] = [];
   for (const raw of preferred.split(',')) {

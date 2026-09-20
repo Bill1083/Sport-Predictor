@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ChevronRight, Sparkles } from 'lucide-react';
+import { ChevronRight, Flag, Sparkles } from 'lucide-react';
 
 import { Crest, ProbBar, StatusChip } from '@/components/events/primitives';
 import type { EventDto } from '@/lib/serialize';
@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
  */
 export function EventCard({ event, showCompetition = true }: { event: EventDto; showCompetition?: boolean }) {
   const sport = sportDefinition(event.sportKey);
+  if (sport?.shape === 'MULTI_ENTRANT' || event.participants.length > 0) return <RaceCard event={event} showCompetition={showCompetition} />;
   const finished = event.status === 'FINISHED' || event.status === 'LIVE';
   const p = event.prediction;
   const probs = p?.probs ?? null;
@@ -75,6 +76,48 @@ export function EventCard({ event, showCompetition = true }: { event: EventDto; 
           </p>
         </div>
 
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+      </div>
+    </Link>
+  );
+}
+
+/** A race in a list: the round, the circuit and the top three favourites (or the podium). */
+function RaceCard({ event, showCompetition }: { event: EventDto; showCompetition: boolean }) {
+  const finished = event.status === 'FINISHED';
+  const forecasts = event.prediction?.score?.entrants ?? [];
+  const podium = finished ? event.participants.filter((p) => p.finishPosition !== null && p.finishPosition <= 3).sort((a, b) => (a.finishPosition ?? 0) - (b.finishPosition ?? 0)) : [];
+  const summary =
+    finished && podium.length > 0
+      ? podium.map((p) => `${p.finishPosition}. ${p.team.shortName ?? p.team.name}`).join('  ')
+      : forecasts.length > 0
+        ? forecasts
+            .slice(0, 3)
+            .map((f) => `${f.name.split(' ').pop()} ${Math.round(f.win * 100)}%`)
+            .join('  ')
+        : event.participants.length > 0
+          ? `${event.participants.length} entrants${event.participants.some((p) => p.gridPosition) ? ', grid known' : ''}`
+          : 'no prediction yet';
+  return (
+    <Link href={`/events/${event.id}`} className="group block rounded-lg border bg-card px-3 py-3 transition-colors hover:border-primary/40 hover:bg-secondary/40 sm:px-4">
+      <div className="flex items-center gap-3">
+        <div className="w-14 shrink-0 text-center">
+          <p className="tnum text-sm font-semibold">{formatTime(event.startsAt)}</p>
+          <div className="mt-0.5">
+            <StatusChip status={event.status} />
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-1.5 truncate text-sm font-semibold">
+            <Flag className="size-3.5 text-gold" />
+            {event.round ?? 'Race'}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            {showCompetition ? `${event.competition.name} - ` : ''}
+            {event.venue?.name ?? ''}
+          </p>
+          <p className="mt-1 truncate text-[11px] text-muted-foreground">{summary}</p>
+        </div>
         <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
       </div>
     </Link>

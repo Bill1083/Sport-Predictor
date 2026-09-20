@@ -46,6 +46,15 @@ export function providerBudgets(): ProviderBudget[] {
       docsUrl: 'https://dashboard.api-football.com',
     },
     {
+      provider: 'api-sports-rugby',
+      label: 'API-Rugby',
+      dailyBudget: env.budgetApiSports,
+      minGapMs: 250,
+      configured: Boolean(env.apiSportsKey),
+      docsUrl: 'https://dashboard.api-football.com',
+    },
+    { provider: 'tennis-archive', label: 'Tennis archive (Sackmann mirror)', dailyBudget: 0, minGapMs: 500, configured: true, docsUrl: 'https://github.com/Aneeshers/tennis-sackmann-archive' },
+    {
       provider: 'thesportsdb',
       label: 'TheSportsDB',
       dailyBudget: env.budgetTheSportsDb,

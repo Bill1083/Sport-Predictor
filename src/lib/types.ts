@@ -60,6 +60,8 @@ export interface ScoreForecast {
   /** Probability grid [home][away], truncated. */
   grid?: number[][];
   lines?: Record<string, number>;
+  /** Multi-entrant events: per-entrant forecast, most likely winner first. */
+  entrants?: { teamId: string; name: string; win: number; podium: number; points: number; expectedPosition: number; dnf: number }[];
 }
 
 export interface StatForecast {

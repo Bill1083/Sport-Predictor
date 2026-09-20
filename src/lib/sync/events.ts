@@ -138,6 +138,7 @@ const MATCH_WINDOW_MS = 36 * 3_600_000;
  */
 export async function upsertEvent(provider: ProviderKey, competition: Competition, ref: EventRef): Promise<Event> {
   const sportKey = competition.sportKey as SportKey;
+  if (ref.entrants && ref.entrants.length > 0) return upsertRace(provider, competition, ref);
   const home = await resolveTeam(provider, ref.home, sportKey);
   const away = await resolveTeam(provider, ref.away, sportKey);
 
@@ -206,6 +207,68 @@ export async function upsertEvent(provider: ProviderKey, competition: Competitio
   }
   if (Object.keys(patch).length === 1) return event;
   return prisma.event.update({ where: { id: event.id }, data: patch });
+}
+
+/**
+ * A multi-entrant event (a race): matched by the provider id, then by
+ * competition, season and round. Entrants become participant rows with grid
+ * and finishing positions; the winner is recorded in the result.
+ */
+async function upsertRace(provider: ProviderKey, competition: Competition, ref: EventRef): Promise<Event> {
+  const sportKey = competition.sportKey as SportKey;
+  const entrants = ref.entrants ?? [];
+  const resolved = [];
+  for (const entrant of entrants) resolved.push({ ...entrant, team: await resolveTeam(provider, entrant.team, sportKey) });
+  const winner = resolved.find((e) => e.finishPosition === 1);
+  const result = ref.result ?? {};
+  const resultJson = JSON.stringify({ ...result, extra: { ...(result.extra ?? {}), ...(winner ? { winnerTeamId: winner.team.id, winnerName: winner.team.name } : {}) } });
+
+  const candidates = await prisma.event.findMany({ where: { competitionId: competition.id, season: ref.season, round: ref.round ?? undefined } });
+  let event = candidates.find((c) => providerIdOf(c, provider) === ref.externalId) ?? candidates[0] ?? null;
+  let venueId: string | undefined;
+  if (ref.venue?.name) {
+    const venue = (await prisma.venue.findFirst({ where: { name: ref.venue.name } })) ?? (await prisma.venue.create({ data: { name: ref.venue.name, city: ref.venue.city, country: ref.venue.country, lat: ref.venue.lat, lon: ref.venue.lon } }));
+    venueId = venue.id;
+  }
+  if (!event) {
+    event = await prisma.event.create({
+      data: {
+        sportKey,
+        competitionId: competition.id,
+        season: ref.season,
+        round: ref.round,
+        stage: ref.stage,
+        startsAt: ref.startsAt,
+        status: ref.status,
+        venueId,
+        format: ref.format,
+        resultJson,
+        providerIdsJson: JSON.stringify({ [provider]: ref.externalId }),
+        lastSyncedAt: new Date(),
+      },
+    });
+  } else {
+    const rank: Record<string, number> = { CANCELLED: 4, POSTPONED: 3, FINISHED: 3, LIVE: 2, SCHEDULED: 1 };
+    const keepStatus = (rank[event.status] ?? 0) > (rank[ref.status] ?? 0) && ref.status === 'SCHEDULED';
+    event = await prisma.event.update({
+      where: { id: event.id },
+      data: {
+        providerIdsJson: mergeIds(event.providerIdsJson, provider, ref.externalId),
+        ...(keepStatus ? {} : { status: ref.status, startsAt: ref.startsAt }),
+        ...(winner || event.resultJson === '{}' ? { resultJson } : {}),
+        ...(venueId && !event.venueId ? { venueId } : {}),
+        lastSyncedAt: new Date(),
+      },
+    });
+  }
+  for (const entrant of resolved) {
+    await prisma.eventParticipant.upsert({
+      where: { eventId_teamId: { eventId: event.id, teamId: entrant.team.id } },
+      create: { eventId: event.id, teamId: entrant.team.id, side: 'ENTRANT', gridPosition: entrant.gridPosition, finishPosition: entrant.finishPosition, score: entrant.score, statusNote: entrant.statusNote },
+      update: { gridPosition: entrant.gridPosition, finishPosition: entrant.finishPosition, score: entrant.score, statusNote: entrant.statusNote },
+    });
+  }
+  return event;
 }
 
 export async function upsertEventStats(provider: ProviderKey, event: Event, refs: EventStatsRef[]): Promise<number> {

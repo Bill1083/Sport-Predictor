@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { simulateSeason } from '@/lib/engine/simulate';
 import { prisma, withDatabase } from '@/lib/prisma';
 import { EVENT_INCLUDE, serializeEvent } from '@/lib/serialize';
-import { competitionTable } from '@/lib/standings';
+import { sportDefinition } from '@/lib/sports/registry';
+import { championshipTable, competitionTable } from '@/lib/standings';
 import { formatInt } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -19,9 +20,10 @@ export default async function LeaguePage({ params }: { params: { id: string } })
   const c = competition.data;
   const season = c.currentSeason ?? '';
   const now = new Date();
+  const championship = sportDefinition(c.sportKey)?.shape === 'MULTI_ENTRANT';
 
   const [table, upcoming, recent, simulation] = await Promise.all([
-    competitionTable(c.id, season),
+    championship ? championshipTable(c.id, season) : competitionTable(c.id, season),
     withDatabase(() =>
       prisma.event.findMany({
         where: { competitionId: c.id, status: { in: ['SCHEDULED', 'LIVE'] }, startsAt: { gte: new Date(now.getTime() - 3 * 3_600_000) } },
@@ -38,21 +40,21 @@ export default async function LeaguePage({ params }: { params: { id: string } })
         take: 12,
       }),
     ),
-    c.type === 'LEAGUE' ? simulateSeason(c.id).catch(() => null) : Promise.resolve(null),
+    c.type === 'LEAGUE' && !championship ? simulateSeason(c.id).catch(() => null) : Promise.resolve(null),
   ]);
   const zones = c.type === 'LEAGUE' && table.length >= 10 ? { top: 1, europe: simulation?.zones.top ?? 4, bottom: simulation?.zones.bottom ?? 3 } : undefined;
 
   return (
     <>
-      <PageHeader title={c.name} description={[c.country, season ? `Season ${season}` : null, `${table.length} teams`].filter(Boolean).join(' - ')} />
+      <PageHeader title={c.name} description={[c.country, season ? `Season ${season}` : null, `${table.length} ${championship ? 'drivers' : 'teams'}`].filter(Boolean).join(' - ')} />
       <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Table</CardTitle>
+              <CardTitle className="text-base">{championship ? 'Championship' : 'Table'}</CardTitle>
             </CardHeader>
             <CardContent className="px-0 pb-2">
-              {table.length === 0 ? <p className="px-4 py-4 text-sm text-muted-foreground">No results synced yet.</p> : <StandingsTable rows={table} zones={zones} />}
+              {table.length === 0 ? <p className="px-4 py-4 text-sm text-muted-foreground">No results synced yet.</p> : <StandingsTable rows={table} zones={zones} variant={championship ? 'championship' : 'league'} />}
             </CardContent>
           </Card>
           {simulation && simulation.remaining > 0 ? (

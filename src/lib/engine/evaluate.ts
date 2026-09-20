@@ -36,11 +36,10 @@ export async function evaluateFinished(sportKey?: string, limit = 500): Promise<
     const sport = sportDefinition(event.sportKey);
     if (!sport) continue;
     const result = parseResult(event.resultJson);
-    const winner = resultWinner(result);
+    const race = sport.shape === 'MULTI_ENTRANT';
+    const raceWinner = race ? (result.extra as { winnerTeamId?: string } | undefined)?.winnerTeamId ?? null : null;
+    const winner = race ? raceWinner : resultWinner(result);
     if (!winner) continue;
-    const outcomes = outcomesFor(sport);
-    const index = outcomes.indexOf(winner);
-    if (index < 0) continue;
     touched += 1;
 
     const byModel = new Map<string, typeof event.predictions>();
@@ -51,9 +50,13 @@ export async function evaluateFinished(sportKey?: string, limit = 500): Promise<
       const final = before[0] ?? list.sort((a, b) => b.version - a.version)[0];
       if (!final) continue;
       const probs = parseJson<ProbMap>(final.probsJson, {});
+      const outcomes: string[] = race ? Object.keys(probs) : outcomesFor(sport);
+      const index = outcomes.indexOf(winner);
+      if (index < 0) continue;
       const ordered = toOrdered(probs, outcomes);
       if (ordered.some((p) => !Number.isFinite(p)) || ordered.reduce((s, p) => s + p, 0) <= 0) continue;
       const s = score(ordered, index);
+      if (race) s.rps = null;
       let exactScore: boolean | null = null;
       let statsError: Record<string, { home: number; away: number; withinRange: boolean }> | null = null;
       if (modelKey === 'ensemble') {

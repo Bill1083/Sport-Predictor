@@ -14,12 +14,16 @@ export function StandingsTable({
   highlight = [],
   compact = false,
   zones,
+  variant = 'league',
 }: {
   rows: StandingRow[];
   highlight?: string[];
   compact?: boolean;
   zones?: { top?: number; europe?: number; bottom?: number };
+  /** `championship` relabels the columns for drivers: races, wins, podiums, retirements. */
+  variant?: 'league' | 'championship';
 }) {
+  const championship = variant === 'championship';
   const n = rows.length;
   const zoneClass = (position: number) => {
     if (!zones) return '';
@@ -33,18 +37,18 @@ export function StandingsTable({
       <TableHeader>
         <TableRow>
           <TableHead className="w-8 pl-3">#</TableHead>
-          <TableHead>Team</TableHead>
-          <TableHead className="text-right">P</TableHead>
+          <TableHead>{championship ? 'Driver' : 'Team'}</TableHead>
+          <TableHead className="text-right">{championship ? 'R' : 'P'}</TableHead>
           {!compact ? (
             <>
               <TableHead className="text-right">W</TableHead>
-              <TableHead className="text-right">D</TableHead>
-              <TableHead className="text-right">L</TableHead>
-              <TableHead className="text-right">F</TableHead>
-              <TableHead className="text-right">A</TableHead>
+              <TableHead className="text-right">{championship ? 'Pod' : 'D'}</TableHead>
+              <TableHead className="text-right">{championship ? 'DNF' : 'L'}</TableHead>
+              {!championship ? <TableHead className="text-right">F</TableHead> : null}
+              {!championship ? <TableHead className="text-right">A</TableHead> : null}
             </>
           ) : null}
-          <TableHead className="text-right">GD</TableHead>
+          {!championship ? <TableHead className="text-right">GD</TableHead> : null}
           <TableHead className="text-right">Pts</TableHead>
           {!compact ? <TableHead className="hidden sm:table-cell">Form</TableHead> : null}
         </TableRow>
@@ -65,11 +69,16 @@ export function StandingsTable({
                 <TableCell className="tnum text-right">{row.won}</TableCell>
                 <TableCell className="tnum text-right">{row.drawn}</TableCell>
                 <TableCell className="tnum text-right">{row.lost}</TableCell>
-                <TableCell className="tnum text-right">{row.scoredFor}</TableCell>
-                <TableCell className="tnum text-right">{row.scoredAgainst}</TableCell>
+                {!championship ? <TableCell className="tnum text-right">{row.scoredFor}</TableCell> : null}
+                {!championship ? <TableCell className="tnum text-right">{row.scoredAgainst}</TableCell> : null}
               </>
             ) : null}
-            <TableCell className="tnum text-right">{row.scoredFor - row.scoredAgainst > 0 ? '+' : ''}{row.scoredFor - row.scoredAgainst}</TableCell>
+            {!championship ? (
+              <TableCell className="tnum text-right">
+                {row.scoredFor - row.scoredAgainst > 0 ? '+' : ''}
+                {row.scoredFor - row.scoredAgainst}
+              </TableCell>
+            ) : null}
             <TableCell className="tnum text-right font-semibold">{row.points}</TableCell>
             {!compact ? (
               <TableCell className="hidden sm:table-cell">

@@ -21,7 +21,7 @@ export default async function TeamPage({ params }: { params: { id: string } }) {
   const [upcoming, recent, injuries, ratings] = await Promise.all([
     withDatabase(() =>
       prisma.event.findMany({
-        where: { OR: [{ homeTeamId: t.id }, { awayTeamId: t.id }], status: { in: ['SCHEDULED', 'LIVE'] }, startsAt: { gte: new Date(now.getTime() - 3 * 3_600_000) } },
+        where: { OR: [{ homeTeamId: t.id }, { awayTeamId: t.id }, { participants: { some: { teamId: t.id } } }], status: { in: ['SCHEDULED', 'LIVE'] }, startsAt: { gte: new Date(now.getTime() - 3 * 3_600_000) } },
         include: EVENT_INCLUDE,
         orderBy: { startsAt: 'asc' },
         take: 6,
@@ -29,7 +29,7 @@ export default async function TeamPage({ params }: { params: { id: string } }) {
     ),
     withDatabase(() =>
       prisma.event.findMany({
-        where: { OR: [{ homeTeamId: t.id }, { awayTeamId: t.id }], status: 'FINISHED' },
+        where: { OR: [{ homeTeamId: t.id }, { awayTeamId: t.id }, { participants: { some: { teamId: t.id } } }], status: 'FINISHED' },
         include: EVENT_INCLUDE,
         orderBy: { startsAt: 'desc' },
         take: 10,

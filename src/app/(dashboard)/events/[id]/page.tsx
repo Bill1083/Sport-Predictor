@@ -1,8 +1,10 @@
 import { notFound } from 'next/navigation';
 
 import { MatchCentre } from '@/components/events/match-centre';
+import { RaceCentre } from '@/components/events/race-centre';
 import { prisma, withDatabase } from '@/lib/prisma';
 import { EVENT_INCLUDE, serializeEvent, serializePrediction } from '@/lib/serialize';
+import { sportDefinition } from '@/lib/sports/registry';
 import { competitionTable } from '@/lib/standings';
 import { parseStringArray } from '@/lib/types';
 
@@ -23,6 +25,9 @@ export default async function EventPage({ params }: { params: { id: string } }) 
   );
   if (!row.ok || !row.data) notFound();
   const e = row.data;
+  if (sportDefinition(e.sportKey)?.shape === 'MULTI_ENTRANT') {
+    return <RaceCentre event={serializeEvent(e)} predictions={e.predictions.map(serializePrediction)} />;
+  }
   const teamIds = [e.homeTeamId, e.awayTeamId].filter((id): id is string => Boolean(id));
 
   const [table, injuries, h2h, homeForm, awayForm, news] = await Promise.all([

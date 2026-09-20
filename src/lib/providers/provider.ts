@@ -15,6 +15,8 @@ export type ProviderKey =
   | 'mock'
   | 'football-data'
   | 'api-sports'
+  | 'api-sports-rugby'
+  | 'tennis-archive'
   | 'thesportsdb'
   | 'football-data-co-uk'
   | 'clubelo'

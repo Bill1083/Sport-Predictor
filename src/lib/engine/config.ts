@@ -78,7 +78,7 @@ export function defaultModelSettings(sport: SportKey): ModelSettings[] {
       params: { ...DEFAULT_DC_PARAMS } satisfies DcParams,
       help: 'xi: time decay per day (0.0018 halves a match\'s weight in about a year). l2: pull toward the league average for thin samples.',
     });
-  } else {
+  } else if (sport === 'rugby_union' || sport === 'rugby_league' || sport === 'basketball' || sport === 'american_football') {
     list.push({
       key: 'margin',
       label: 'Margin model',
@@ -86,6 +86,16 @@ export function defaultModelSettings(sport: SportKey): ModelSettings[] {
       weight: 0.5,
       params: { xi: 0.002, sigma: null },
       help: 'Expected margin from the rating gap plus home advantage; sigma is the spread of margins, fitted at refit.',
+    });
+  }
+  if (sport === 'f1') {
+    list.push({
+      key: 'race-sim',
+      label: 'Race simulation',
+      enabled: true,
+      weight: 0.7,
+      params: { xi: 0.006, runs: 5000, gridWeight: 0.6, noise: 0.35 },
+      help: 'Driver and constructor pace from recent finishes with time decay; gridWeight scales how much the qualifying position shifts pace; noise is the race-day spread. Monte Carlo over the field.',
     });
   }
   list.push(

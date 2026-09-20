@@ -68,7 +68,7 @@ export async function accuracyReport(sportKey: string | null, days = 365, limit 
       comp.scores.push(s);
       const sport = sportDefinition(row.event.sportKey);
       const winner = resultWinner(parseResult(row.event.resultJson));
-      if (sport && winner) {
+      if (sport && winner && sport.shape !== 'MULTI_ENTRANT') {
         const outcomes = outcomesFor(sport);
         const probs = parseJson<ProbMap>(row.prediction.probsJson, {});
         const ordered = toOrdered(probs, outcomes);

@@ -11,6 +11,7 @@
 import type { Event } from '@prisma/client';
 
 import { assessEvent } from '@/lib/ai/assess';
+import { computeRaceOutputs } from '@/lib/engine/race';
 import { loadModelConfigs, saveModelState, type LoadedModel } from '@/lib/engine/config';
 import { fitDixonColes, dcRates, type DcParams, type DcState } from '@/lib/engine/dixon-coles';
 import { computeElo, eloPredict, eloRating, type EloParams, type EloState } from '@/lib/engine/elo';
@@ -340,6 +341,20 @@ export async function predictSport(sportKey: SportKey, options: PredictOptions =
   const summary: PredictSummary = { considered: candidates.data.length, predicted: 0, skipped: candidates.data.length - due.length };
   if (due.length === 0) return summary;
 
+  const definition = sportDefinition(sportKey);
+  if (definition?.shape === 'MULTI_ENTRANT') {
+    let done = 0;
+    for (const event of due) {
+      const outputs = await computeRaceOutputs(sportKey, event);
+      if (outputs) {
+        await storePrediction(event, outputs, sportSettings.mode, now);
+        summary.predicted += 1;
+      }
+      done += 1;
+      await options.onProgress?.(done, due.length);
+    }
+    return summary;
+  }
   const models = await prepareSportModels(sportKey, options.log);
   if (!models) return summary;
   options.log?.(`models ready: elo ${Object.keys(models.elo.ratings).length} teams, dc ${models.dc.size} competitions, ml ${models.ml ? 'trained' : 'not trained'}`);
