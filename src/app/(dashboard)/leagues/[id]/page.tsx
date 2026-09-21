@@ -47,7 +47,7 @@ export default async function LeaguePage({ params }: { params: { id: string } })
   return (
     <>
       <PageHeader title={c.name} description={[c.country, season ? `Season ${season}` : null, `${table.length} ${championship ? 'drivers' : 'teams'}`].filter(Boolean).join(' - ')} />
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="space-y-4">
           <Card>
             <CardHeader className="pb-2">

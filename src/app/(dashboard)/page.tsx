@@ -142,7 +142,7 @@ export default async function TodayPage() {
                   </Link>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-2 lg:grid-cols-2">
+              <CardContent className="grid grid-cols-1 gap-2 lg:grid-cols-2">
                 {entry.events.map((event) => (
                   <EventCard key={event.id} event={event} showCompetition={false} />
                 ))}

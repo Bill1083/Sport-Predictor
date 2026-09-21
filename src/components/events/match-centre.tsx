@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { CloudSun, HeartPulse, MapPin, Newspaper, Sparkles, Users } from 'lucide-react';
+import { ChevronRight, CloudSun, HeartPulse, MapPin, Newspaper, Sparkles, Users } from 'lucide-react';
 
 import { EventCard } from '@/components/events/event-card';
 import { PickPanel, type PickDto } from '@/components/events/pick-panel';
@@ -9,7 +9,7 @@ import { StandingsTable } from '@/components/leagues/standings-table';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { EventDto, PredictionDto } from '@/lib/serialize';
-import { MODEL_LABELS, outcomesFor, sportDefinition } from '@/lib/sports/registry';
+import { MODEL_DESCRIPTIONS, MODEL_LABELS, outcomesFor, sportDefinition } from '@/lib/sports/registry';
 import type { TableRow } from '@/lib/standings';
 import { resultWinner } from '@/lib/types';
 import { formatDate, formatDateTime } from '@/lib/time';
@@ -52,8 +52,9 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
   const home = event.home;
   const away = event.away;
   const ensemble = predictions.filter((p) => p.modelKey === 'ensemble').sort((a, b) => b.version - a.version)[0] ?? null;
+  const shown = new Set([...(sport?.models ?? []), 'baseline', 'market']);
   const latestByModel = new Map<string, PredictionDto>();
-  for (const p of predictions) if (!latestByModel.has(p.modelKey)) latestByModel.set(p.modelKey, p);
+  for (const p of predictions) if (shown.has(p.modelKey) && !latestByModel.has(p.modelKey)) latestByModel.set(p.modelKey, p);
   const finished = event.status === 'FINISHED';
   const positions = new Map(table.map((row) => [row.teamId, row.position]));
   const headlineStats = (sport?.stats ?? []).filter((s) => s.headline).map((s) => s.key);
@@ -71,7 +72,7 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
             </Link>
             {event.round ? ` - ${event.round}` : ''} - {formatDateTime(event.startsAt)}
           </p>
-          <div className="mt-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
             <div className="flex flex-col items-center gap-2 text-center">
               {home ? <Crest name={home.name} code={home.code} crestUrl={home.crestUrl} size="lg" /> : null}
               <Link href={home ? `/teams/${home.id}` : '#'} className="font-display text-base font-semibold leading-tight hover:underline sm:text-lg">
@@ -116,10 +117,21 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
           {ensemble ? (
             <div className="mx-auto mt-5 max-w-2xl">
               <ProbBar home={ensemble.probs.HOME ?? 0} draw={sport?.hasDraws ? (ensemble.probs.DRAW ?? 0) : null} away={ensemble.probs.AWAY ?? 0} />
-              <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
-                <span>{sport?.outcomeLabels.HOME ?? 'Home'}</span>
-                {sport?.hasDraws ? <span>{sport.outcomeLabels.DRAW}</span> : null}
-                <span>{sport?.outcomeLabels.AWAY ?? 'Away'}</span>
+              <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <span className="size-2 shrink-0 rounded-full bg-home" />
+                  <span className="truncate">{home?.shortName ?? home?.name ?? sport?.outcomeLabels.HOME ?? 'Home'}</span>
+                </span>
+                {sport?.hasDraws ? (
+                  <span className="inline-flex shrink-0 items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-draw" />
+                    {sport.outcomeLabels.DRAW}
+                  </span>
+                ) : null}
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <span className="size-2 shrink-0 rounded-full bg-away" />
+                  <span className="truncate">{away?.shortName ?? away?.name ?? sport?.outcomeLabels.AWAY ?? 'Away'}</span>
+                </span>
               </div>
             </div>
           ) : (
@@ -164,7 +176,7 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="space-y-4">
           {/* Narrative and factors */}
           {ensemble?.narrative || (ensemble?.factors.length ?? 0) > 0 ? (
@@ -247,18 +259,63 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Model by model</CardTitle>
+                <CardDescription className="mt-1">
+                  Tap a model to see how it works. Numbers and bars run{' '}
+                  <span className="font-medium text-home">{home?.shortName ?? home?.name ?? 'home'}</span>
+                  {sport?.hasDraws ? (
+                    <>
+                      {', '}
+                      <span className="font-medium text-draw">draw</span>
+                    </>
+                  ) : null}
+                  {' then '}
+                  <span className="font-medium text-away">{away?.shortName ?? away?.name ?? 'away'}</span>. The ensemble is the one shown elsewhere.
+                </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {Array.from(latestByModel.values()).map((p) => (
-                  <div key={p.modelKey} className="flex items-center gap-3 text-sm">
-                    <span className="w-32 shrink-0 truncate">{MODEL_LABELS[p.modelKey] ?? p.modelKey}</span>
-                    <ProbBar home={p.probs.HOME ?? 0} draw={sport?.hasDraws ? (p.probs.DRAW ?? 0) : null} away={p.probs.AWAY ?? 0} compact className="flex-1" />
-                    <span className="tnum w-24 shrink-0 text-right text-xs text-muted-foreground">
-                      {Math.round((p.probs.HOME ?? 0) * 100)} / {sport?.hasDraws ? `${Math.round((p.probs.DRAW ?? 0) * 100)} / ` : ''}
-                      {Math.round((p.probs.AWAY ?? 0) * 100)}
+              <CardContent className="space-y-3.5">
+                {Array.from(latestByModel.values()).map((p) => {
+                  const description = MODEL_DESCRIPTIONS[p.modelKey];
+                  const numbers = (
+                    <span className="tnum shrink-0 text-xs text-muted-foreground">
+                      <span className="text-home">{Math.round((p.probs.HOME ?? 0) * 100)}</span>
+                      {sport?.hasDraws ? (
+                        <>
+                          {' / '}
+                          <span className="text-draw">{Math.round((p.probs.DRAW ?? 0) * 100)}</span>
+                        </>
+                      ) : null}
+                      {' / '}
+                      <span className="text-away">{Math.round((p.probs.AWAY ?? 0) * 100)}</span>
                     </span>
-                  </div>
-                ))}
+                  );
+                  const bar = <ProbBar home={p.probs.HOME ?? 0} draw={sport?.hasDraws ? (p.probs.DRAW ?? 0) : null} away={p.probs.AWAY ?? 0} compact />;
+                  if (!description) {
+                    return (
+                      <div key={p.modelKey} className="space-y-1">
+                        <div className="flex items-baseline justify-between gap-3 text-sm">
+                          <span className="min-w-0 truncate font-medium">{MODEL_LABELS[p.modelKey] ?? p.modelKey}</span>
+                          {numbers}
+                        </div>
+                        {bar}
+                      </div>
+                    );
+                  }
+                  return (
+                    <details key={p.modelKey} className="group">
+                      <summary className="cursor-pointer list-none space-y-1 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                        <div className="flex items-baseline justify-between gap-3 text-sm">
+                          <span className="flex min-w-0 items-center gap-1">
+                            <ChevronRight className="size-3.5 shrink-0 self-center text-muted-foreground transition-transform group-open:rotate-90" />
+                            <span className="truncate font-medium">{MODEL_LABELS[p.modelKey] ?? p.modelKey}</span>
+                          </span>
+                          {numbers}
+                        </div>
+                        {bar}
+                      </summary>
+                      <p className="mt-1.5 pl-[1.125rem] text-[11px] leading-snug text-muted-foreground">{description}</p>
+                    </details>
+                  );
+                })}
               </CardContent>
             </Card>
           ) : null}

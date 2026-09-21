@@ -39,7 +39,7 @@ export function GlobalSettingsForm({ initial, status }: { initial: GlobalSetting
   const keyMissing = (form.aiProvider === 'gemini' && !status.gemini) || (form.aiProvider === 'anthropic' && !status.anthropic);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">AI</CardTitle>
@@ -48,7 +48,7 @@ export function GlobalSettingsForm({ initial, status }: { initial: GlobalSetting
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label>Provider</Label>
               <Select value={form.aiProvider} onValueChange={(v) => setForm({ ...form, aiProvider: v as GlobalSettings['aiProvider'] })}>
@@ -120,7 +120,7 @@ export function GlobalSettingsForm({ initial, status }: { initial: GlobalSetting
           <CardDescription className="mt-1">How far ahead to predict, when to refit, and whether the market benchmark is on.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1">
               <Label htmlFor="horizon">Prediction horizon (days)</Label>
               <Input id="horizon" type="number" min={1} max={60} value={form.predictHorizonDays} onChange={num('predictHorizonDays')} />

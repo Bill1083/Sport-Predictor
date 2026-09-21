@@ -318,6 +318,28 @@ export function outcomesFor(sport: SportDefinition): Outcome[] {
   return sport.hasDraws ? ['HOME', 'DRAW', 'AWAY'] : ['HOME', 'AWAY'];
 }
 
+/**
+ * What each model actually does, in plain words, for the reader looking at a
+ * prediction rather than tuning one. The technical parameter notes live on
+ * ModelSettings.help and are shown in the Lab instead.
+ */
+export const MODEL_DESCRIPTIONS: Record<string, string> = {
+  elo: 'One strength number per team, nudged up or down after every match by how big the win was and how good the opponent was. The gap between the two numbers, plus home advantage, becomes the win chance.',
+  poisson: 'Treats goals as random arrivals at each team’s average scoring rate, then adds up every scoreline those rates produce to get win, draw and loss.',
+  'dixon-coles': 'Rates attack and defence separately for each team, builds the full grid of possible scorelines, and adds up the squares. A correction stops it underrating 0-0 and 1-1.',
+  margin: 'Predicts the winning margin as a bell curve centred on the rating gap plus home advantage. The win chance is the share of that curve either side of zero.',
+  totals: 'Predicts each side’s innings total from their scoring rate against the opponent’s bowling, then compares the two. Rain and format shift the draw chance.',
+  markov: 'Works out how often each player wins a point on serve, then plays the match out point by point through games and sets to a win probability.',
+  pace: 'Rates each entrant on recent finishing positions with older results counting less.',
+  'race-sim': 'Runs the race thousands of times. Each driver gets their recent pace, a shift for their grid slot, race-day randomness and their own retirement risk; how often they come out first is the win chance.',
+  stats: 'Not a winner model. Forecasts the individual numbers, such as shots, passes and cards, by combining what each side usually does with what the opponent usually allows.',
+  ml: 'Weighs around twenty signals at once, including the rating gap, recent form, rest days, travel, table position, absences and weather, having learned from past seasons how much each one matters.',
+  ai: 'Reads the team news and headlines, then adjusts the other models within a capped limit, or in AI mode gives its own forecast. It never moves the numbers by more than the cap you set.',
+  ensemble: 'The number shown everywhere else. A weighted blend of the models above, where the weights favour whichever has been most accurate lately, then calibrated so a stated 60% really does win about 60% of the time.',
+  market: 'What the bookmakers’ odds imply once their built-in margin is removed. A benchmark to measure against, never advice.',
+  baseline: 'A deliberately naive reference: how often the home side wins in this competition historically, ignoring who is playing. Every model has to beat it to be worth running.',
+};
+
 export const MODEL_LABELS: Record<string, string> = {
   elo: 'Elo rating',
   poisson: 'Poisson',

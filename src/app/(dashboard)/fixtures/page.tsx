@@ -91,7 +91,7 @@ export default async function FixturesPage({ searchParams }: { searchParams: { d
                 {formatDayHeading(list[0].startsAt)}
                 {key === today ? <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-[11px] text-primary">today</span> : null}
               </h2>
-              <div className="grid gap-2 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
                 {list.map((event) => (
                   <EventCard key={event.id} event={event} />
                 ))}

@@ -69,7 +69,7 @@ function CompetitionsList({ sport }: { sport: SportRow }) {
         <span className="text-xs text-muted-foreground">
           {sport.followed} of {sport.competitions.length} followed
         </span>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex flex-wrap gap-2">
           <RunJobButton job="sync:catalogue" sportKey={sport.key} label="Refresh catalogue" size="sm" variant="ghost" icon="refresh" />
           <RunJobButton job="sync:fixtures" sportKey={sport.key} label="Sync fixtures" size="sm" variant="outline" icon="refresh" disabled={sport.followed === 0} />
         </div>
@@ -119,7 +119,7 @@ function SportSettingsForm({ sport }: { sport: SportRow }) {
     setForm({ ...form, [key]: Number(e.target.value) });
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <div className="space-y-1">
         <Label htmlFor={`${sport.key}-poll`}>Results poll (min)</Label>
         <Input id={`${sport.key}-poll`} type="number" min={5} max={1440} value={form.resultsPollMinutes} onChange={num('resultsPollMinutes')} />

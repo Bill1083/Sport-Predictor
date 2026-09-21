@@ -134,8 +134,11 @@ export async function prepareSportModels(sportKey: SportKey, log?: (line: string
     }
   }
 
+  // Only the sports whose config actually lists the margin model get one. It
+  // reads the score as a points margin, which is meaningless for sets or runs,
+  // and a stored prediction nobody blends is just a misleading row on the page.
   let margin: MarginState | null = null;
-  if (!usesDc && history.length >= 20) margin = fitMargin(history, elo, now, sport.priors);
+  if (configs.has('margin') && history.length >= 20) margin = fitMargin(history, elo, now, sport.priors);
 
   const mlStored = configs.get('ml')?.state;
   const ml = mlStored ? parseJson<LogisticState | null>(mlStored, null) : null;

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Download, Target } from 'lucide-react';
+import { ChevronRight, Download, Target } from 'lucide-react';
 
 import { CalibrationChart, TimelineChart } from '@/components/accuracy/charts';
 import { EmptyState } from '@/components/shared/empty-state';
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { accuracyReport } from '@/lib/engine/accuracy';
-import { MODEL_LABELS, sportDefinition } from '@/lib/sports/registry';
+import { MODEL_DESCRIPTIONS, MODEL_LABELS, sportDefinition } from '@/lib/sports/registry';
 import { listEnabledSports, resolveSportSelection } from '@/lib/sports/selection';
 import { formatDate } from '@/lib/time';
 import { cn, formatInt } from '@/lib/utils';
@@ -70,7 +70,9 @@ export default async function AccuracyPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Model by model</CardTitle>
-              <CardDescription className="mt-1">Every model is scored on the same events. The baseline is the league's own home / draw / away frequency.</CardDescription>
+              <CardDescription className="mt-1">
+                Every model is scored on the same events. Lower log loss, Brier and RPS are better; the baseline is the league&apos;s own home / draw / away frequency, and anything that cannot beat it is not earning its place.
+              </CardDescription>
             </CardHeader>
             <CardContent className="px-0">
               <Table>
@@ -91,7 +93,7 @@ export default async function AccuracyPage() {
                     const best = baseline && m.logLoss < baseline.logLoss && key !== 'baseline';
                     return (
                       <TableRow key={key} className={cn(key === 'ensemble' && 'bg-primary/5')}>
-                        <TableCell className="pl-4 font-medium">{MODEL_LABELS[key] ?? key}</TableCell>
+                        <TableCell className="min-w-[8rem] pl-4 font-medium">{MODEL_LABELS[key] ?? key}</TableCell>
                         <TableCell className="tnum text-right">{formatInt(m.n)}</TableCell>
                         <TableCell className={cn('tnum text-right', best && 'text-success')}>{m.logLoss.toFixed(3)}</TableCell>
                         <TableCell className="tnum text-right">{m.brier.toFixed(3)}</TableCell>
@@ -103,10 +105,26 @@ export default async function AccuracyPage() {
                   })}
                 </TableBody>
               </Table>
+              <details className="group border-t px-4 pt-3 sm:px-5">
+                <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                  <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
+                  What each model does
+                </summary>
+                <dl className="mt-2 space-y-2 pl-[1.125rem]">
+                  {modelKeys
+                    .filter((key) => MODEL_DESCRIPTIONS[key])
+                    .map((key) => (
+                      <div key={key}>
+                        <dt className="text-sm font-medium">{MODEL_LABELS[key] ?? key}</dt>
+                        <dd className="text-[11px] leading-snug text-muted-foreground">{MODEL_DESCRIPTIONS[key]}</dd>
+                      </div>
+                    ))}
+                </dl>
+              </details>
             </CardContent>
           </Card>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Log loss by week</CardTitle>
@@ -127,7 +145,7 @@ export default async function AccuracyPage() {
             </Card>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">By competition</CardTitle>

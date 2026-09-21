@@ -36,7 +36,7 @@ export default async function LeaguesPage() {
           }
         />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {list.map((competition, index) => (
             <Card key={competition.id}>
               <CardHeader className="pb-2">

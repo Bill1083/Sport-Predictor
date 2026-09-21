@@ -106,6 +106,14 @@
 
   html {
     -webkit-text-size-adjust: 100%;
+    /*
+     * A safety net for phones: if any single element ever grows wider than the
+     * screen (a very long team name, a wide table), clip it rather than let it
+     * stretch the whole document and force the browser to zoom out. `clip` is
+     * used instead of `hidden` because it does not create a scroll container,
+     * so the sticky header and the fixed tab bar keep working.
+     */
+    overflow-x: clip;
   }
 
   body {

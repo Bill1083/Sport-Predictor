@@ -56,7 +56,7 @@ export default async function SettingsPage() {
             <CardDescription className="mt-1">What is configured in .env. Values are never shown, only whether they exist.</CardDescription>
           </CardHeader>
           <CardContent>
-            <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
               <dt className="text-muted-foreground">Public URL</dt>
               <dd>{env.appUrl}</dd>
               <dt className="text-muted-foreground">Timezone</dt>
