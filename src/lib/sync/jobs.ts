@@ -19,6 +19,7 @@ import { forecastAt } from '@/lib/providers/open-meteo';
 import { BudgetExhaustedError, ProviderError, type SportsDataProvider } from '@/lib/providers/provider';
 import { providerByKey, providersFor } from '@/lib/providers/registry';
 import { TheSportsDbProvider } from '@/lib/providers/thesportsdb';
+import { TennisArchiveProvider } from '@/lib/providers/tennis-archive';
 import { getGlobalSettings, getSettingsForSports } from '@/lib/settings';
 import { isSportKey, type SportKey } from '@/lib/sports/registry';
 import {
@@ -149,6 +150,47 @@ const catalogue: JobHandler = {
         }
       }
     }
+    // Tour rankings. A tennis tour has no league table, so the published
+    // ranking is what stands in for one; it is stored as a rating time series.
+    if (!env.mockSports && sports.includes('tennis')) {
+      const archive = providerByKey('tennis-archive');
+      if (archive instanceof TennisArchiveProvider) {
+        const tours = await prisma.competition.findMany({ where: { sportKey: 'tennis', followed: true } });
+        const seen = new Set<string>();
+        await progress.phase('tour rankings', tours.length);
+        for (const tour of tours) {
+          const ref = competitionRefFor(tour, 'tennis-archive');
+          if (!ref || seen.has(ref.externalId)) {
+            await progress.tick();
+            continue;
+          }
+          seen.add(ref.externalId);
+          await attempt(tally, progress, `tennis-archive rankings ${tour.name}`, async () => {
+            const rankings = await archive.listRankings(ref.externalId);
+            if (rankings.length === 0) return;
+            const byName = new Map(rankings.map((r) => [normaliseName(r.name), r]));
+            const players = await prisma.team.findMany({ where: { sportKey: 'tennis' }, select: { id: true, name: true } });
+            let stored = 0;
+            for (const player of players) {
+              const entry = byName.get(normaliseName(player.name));
+              if (!entry) continue;
+              const existing = await prisma.rating.findFirst({ where: { teamId: player.id, model: 'RANK', asOf: entry.asOf } });
+              if (existing) {
+                if (existing.value !== entry.rank) await prisma.rating.update({ where: { id: existing.id }, data: { value: entry.rank, extraJson: JSON.stringify({ points: entry.points, tour: ref.externalId }) } });
+                continue;
+              }
+              await prisma.rating.create({
+                data: { sportKey: 'tennis', teamId: player.id, model: 'RANK', value: entry.rank, asOf: entry.asOf, extraJson: JSON.stringify({ points: entry.points, tour: ref.externalId }) },
+              });
+              stored += 1;
+            }
+            progress.log(`${ref.externalId}: ${rankings.length} ranked, ${stored} matched to players`);
+          });
+          await progress.tick();
+        }
+      }
+    }
+
     const pruned = await pruneCache();
     if (pruned > 0) progress.log(`pruned ${pruned} expired cache rows`);
     return outcome(tally, 'provider calls');

@@ -29,9 +29,10 @@ export default async function EventPage({ params }: { params: { id: string } }) 
     return <RaceCentre event={serializeEvent(e)} predictions={e.predictions.map(serializePrediction)} />;
   }
   const teamIds = [e.homeTeamId, e.awayTeamId].filter((id): id is string => Boolean(id));
+  const ranked = sportDefinition(e.sportKey)?.shape === 'PLAYER_VS_PLAYER';
 
-  const [table, injuries, h2h, homeForm, awayForm, news] = await Promise.all([
-    competitionTable(e.competitionId, e.season, e.status === 'FINISHED' ? e.startsAt : undefined),
+  const [table, injuries, h2h, homeForm, awayForm, news, rankRows] = await Promise.all([
+    ranked ? Promise.resolve([]) : competitionTable(e.competitionId, e.season, e.status === 'FINISHED' ? e.startsAt : undefined),
     withDatabase(() => prisma.injury.findMany({ where: { teamId: { in: teamIds }, resolvedAt: null }, orderBy: { reportedAt: 'desc' } })),
     withDatabase(() =>
       prisma.event.findMany({
@@ -71,13 +72,22 @@ export default async function EventPage({ params }: { params: { id: string } }) 
         take: 12,
       }),
     ),
+    ranked
+      ? withDatabase(() => prisma.rating.findMany({ where: { model: 'RANK', teamId: { in: teamIds } }, orderBy: { asOf: 'desc' }, select: { teamId: true, value: true, asOf: true } }))
+      : Promise.resolve({ ok: true as const, data: [] as { teamId: string; value: number; asOf: Date }[] }),
   ]);
+  // Newest first, so the first row per player is their current ranking.
+  const ranks = new Map<string, { rank: number; asOf: string }>();
+  for (const row of rankRows.ok ? rankRows.data : []) {
+    if (!ranks.has(row.teamId)) ranks.set(row.teamId, { rank: row.value, asOf: row.asOf.toISOString() });
+  }
 
   return (
     <MatchCentre
       event={serializeEvent(e)}
       predictions={e.predictions.map(serializePrediction)}
       table={table}
+      ranks={Object.fromEntries(ranks)}
       injuries={(injuries.ok ? injuries.data : []).map((i) => ({ id: i.id, teamId: i.teamId, playerName: i.playerName, type: i.type, status: i.status, reason: i.reason }))}
       lineups={e.lineups.map((l) => ({ teamId: l.teamId, formation: l.formation, coach: l.coach, confirmed: l.confirmed, starters: parseStringArray(l.startersJson).length ? parseStringArray(l.startersJson) : (JSON.parse(l.startersJson) as { name: string; position?: string; number?: number }[]).map((p) => `${p.number ?? ''} ${p.name}${p.position ? ` (${p.position})` : ''}`.trim()) }))}
       stats={e.stats.map((s) => ({ teamId: s.teamId, stats: JSON.parse(s.statsJson) as Record<string, number> }))}

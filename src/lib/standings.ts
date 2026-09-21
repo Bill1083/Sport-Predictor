@@ -6,7 +6,7 @@
 
 import type { Event, Team } from '@prisma/client';
 
-import { prisma, withDatabase } from '@/lib/prisma';
+import { parseJson, prisma, withDatabase } from '@/lib/prisma';
 import { parseResult } from '@/lib/types';
 
 export interface TableRow {
@@ -158,4 +158,81 @@ export async function championshipTable(competitionId: string, season: string, a
     row.form = (formLog.get(row.teamId) ?? []).slice(-5).join('');
   });
   return table;
+}
+
+export interface RankingRow {
+  teamId: string;
+  team: TableRow['team'];
+  /** The tour's published rank, or null for a player who is not ranked. */
+  rank: number | null;
+  points: number | null;
+  asOf: Date | null;
+  played: number;
+  won: number;
+}
+
+/**
+ * A tour has no league table: players meet in draws, not in a round robin, so
+ * wins and losses do not order them. The published ranking does, and this puts
+ * it next to what each player has actually done in the events we hold.
+ */
+export async function rankingTable(competitionId: string, season: string): Promise<RankingRow[]> {
+  const events = await withDatabase(() =>
+    prisma.event.findMany({
+      where: { competitionId, season },
+      select: {
+        status: true,
+        resultJson: true,
+        homeTeam: { select: { id: true, name: true, shortName: true, code: true, crestUrl: true } },
+        awayTeam: { select: { id: true, name: true, shortName: true, code: true, crestUrl: true } },
+      },
+    }),
+  );
+  if (!events.ok) return [];
+  const rows = new Map<string, RankingRow>();
+  const ensure = (team: TableRow['team']) => {
+    let row = rows.get(team.id);
+    if (!row) {
+      row = { teamId: team.id, team, rank: null, points: null, asOf: null, played: 0, won: 0 };
+      rows.set(team.id, row);
+    }
+    return row;
+  };
+  for (const event of events.data) {
+    if (!event.homeTeam || !event.awayTeam) continue;
+    const home = ensure(event.homeTeam);
+    const away = ensure(event.awayTeam);
+    if (event.status !== 'FINISHED') continue;
+    const result = parseResult(event.resultJson);
+    if (typeof result.homeScore !== 'number' || typeof result.awayScore !== 'number') continue;
+    home.played += 1;
+    away.played += 1;
+    if (result.homeScore > result.awayScore) home.won += 1;
+    else if (result.awayScore > result.homeScore) away.won += 1;
+  }
+  if (rows.size === 0) return [];
+
+  const ratings = await withDatabase(() =>
+    prisma.rating.findMany({
+      where: { model: 'RANK', teamId: { in: Array.from(rows.keys()) } },
+      orderBy: { asOf: 'desc' },
+      select: { teamId: true, value: true, asOf: true, extraJson: true },
+    }),
+  );
+  if (ratings.ok) {
+    for (const rating of ratings.data) {
+      const row = rows.get(rating.teamId);
+      // Ordered newest first, so the first one seen per player is the current list.
+      if (!row || row.rank !== null) continue;
+      row.rank = rating.value;
+      row.asOf = rating.asOf;
+      row.points = parseJson<{ points?: number | null }>(rating.extraJson, {}).points ?? null;
+    }
+  }
+  return Array.from(rows.values()).sort(
+    (a, b) =>
+      (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER) ||
+      b.won - a.won ||
+      a.team.name.localeCompare(b.team.name),
+  );
 }

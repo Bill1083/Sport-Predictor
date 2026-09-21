@@ -26,6 +26,45 @@ export const TOURS: CompetitionRef[] = [
 
 export type ArchiveRow = Record<string, string>;
 
+export interface RankingRef {
+  /** The archive's player id, which is also this provider's team externalId. */
+  externalId: string;
+  name: string;
+  rank: number;
+  points: number | null;
+  /** The date the tour published this list, not the date we read it. */
+  asOf: Date;
+}
+
+/** "20260608" -> a UTC date. */
+export function archiveDate(value: string): Date | null {
+  if (!/^\d{8}$/.test(value)) return null;
+  return new Date(Date.UTC(Number(value.slice(0, 4)), Number(value.slice(4, 6)) - 1, Number(value.slice(6, 8))));
+}
+
+/**
+ * The rankings file holds several weekly lists; only the newest is current.
+ * It carries player ids and no names, so names come from the match rows we
+ * have already downloaded for the same tour.
+ */
+export function latestRankings(rows: ArchiveRow[], names: Map<string, string>): RankingRef[] {
+  let newest = '';
+  for (const row of rows) if (row.ranking_date && row.ranking_date > newest) newest = row.ranking_date;
+  const asOf = archiveDate(newest);
+  if (!asOf) return [];
+  const out: RankingRef[] = [];
+  for (const row of rows) {
+    if (row.ranking_date !== newest) continue;
+    const rank = num(row.rank);
+    const id = row.player;
+    if (!rank || !id) continue;
+    const name = names.get(id);
+    if (!name) continue;
+    out.push({ externalId: id, name, rank, points: num(row.points) ?? null, asOf });
+  }
+  return out.sort((a, b) => a.rank - b.rank);
+}
+
 const ROUND_DAY: Record<string, number> = { R128: 0, R64: 1, R32: 2, R16: 3, QF: 4, SF: 5, F: 6, RR: 1, BR: 6, ER: 0, Q1: -3, Q2: -2, Q3: -1 };
 
 function num(value: string | undefined): number | undefined {
@@ -168,6 +207,27 @@ export class TennisArchiveProvider implements SportsDataProvider {
       }
     }
     return out;
+  }
+
+  /**
+   * The tour's current ranking list. The mirror refreshes in batches, so this
+   * can trail the live list by a few weeks; `asOf` says when it was published
+   * and the UI shows that date rather than implying it is live.
+   */
+  async listRankings(tour: string, now = new Date()): Promise<RankingRef[]> {
+    const year = now.getUTCFullYear();
+    const names = new Map<string, string>();
+    for (const y of [year, year - 1]) {
+      for (const row of await this.rows(tour, String(y), 6 * 3_600_000)) {
+        if (row.winner_id && row.winner_name) names.set(row.winner_id, row.winner_name);
+        if (row.loser_id && row.loser_name) names.set(row.loser_id, row.loser_name);
+      }
+    }
+    const url = `${BASE}/${tour}/${tour}_rankings_current.csv`;
+    const response = await providerFetch(this.key, url, { ttlMs: 2 * DAY_MS, timeoutMs: 40_000, emptyStatuses: [404] });
+    if (response.status === 404) return [];
+    const rows = Papa.parse<ArchiveRow>(response.body, { header: true, skipEmptyLines: true }).data ?? [];
+    return latestRankings(rows, names);
   }
 
   async getEventStats(event: EventRef): Promise<EventStatsRef[]> {

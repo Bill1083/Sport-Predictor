@@ -19,6 +19,8 @@ export interface MatchCentreProps {
   event: EventDto;
   predictions: PredictionDto[];
   table: TableRow[];
+  /** Published tour ranking per player, for sports that are ranked rather than tabled. */
+  ranks?: Record<string, { rank: number; asOf: string }>;
   injuries: { id: string; teamId: string; playerName: string; type: string; status: string; reason: string | null }[];
   lineups: { teamId: string; formation: string | null; coach: string | null; confirmed: boolean; starters: string[] }[];
   stats: { teamId: string; stats: Record<string, number> }[];
@@ -47,7 +49,7 @@ function formString(team: string, events: EventDto[]): string {
  * The match page. Everything the models saw and everything they concluded,
  * side by side; after the result, what each model scored.
  */
-export function MatchCentre({ event, predictions, table, injuries, lineups, stats, h2h, homeForm, awayForm, headlines, pick }: MatchCentreProps) {
+export function MatchCentre({ event, predictions, table, ranks = {}, injuries, lineups, stats, h2h, homeForm, awayForm, headlines, pick }: MatchCentreProps) {
   const sport = sportDefinition(event.sportKey);
   const home = event.home;
   const away = event.away;
@@ -57,6 +59,21 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
   for (const p of predictions) if (shown.has(p.modelKey) && !latestByModel.has(p.modelKey)) latestByModel.set(p.modelKey, p);
   const finished = event.status === 'FINISHED';
   const positions = new Map(table.map((row) => [row.teamId, row.position]));
+  const tourLabel = event.competition.shortName ?? event.competition.name;
+  function standingFor(teamId: string | undefined) {
+    if (!teamId) return null;
+    const ranked = ranks[teamId];
+    if (ranked) {
+      return (
+        <span className="text-xs text-muted-foreground">
+          {tourLabel} #{ranked.rank}
+          <span className="sr-only"> as of {formatDate(ranked.asOf)}</span>
+        </span>
+      );
+    }
+    if (positions.has(teamId)) return <span className="text-xs text-muted-foreground">{ordinal(positions.get(teamId) as number)} in table</span>;
+    return null;
+  }
   const headlineStats = (sport?.stats ?? []).filter((s) => s.headline).map((s) => s.key);
   const statDefs = new Map((sport?.stats ?? []).map((s) => [s.key, s]));
 
@@ -78,7 +95,7 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
               <Link href={home ? `/teams/${home.id}` : '#'} className="font-display text-base font-semibold leading-tight hover:underline sm:text-lg">
                 {home?.name ?? 'TBD'}
               </Link>
-              {home && positions.has(home.id) ? <span className="text-xs text-muted-foreground">{ordinal(positions.get(home.id) as number)} in table</span> : null}
+              {standingFor(home?.id)}
               <FormDots form={home ? formString(home.id, homeForm) : ''} />
             </div>
             <div className="text-center">
@@ -109,7 +126,7 @@ export function MatchCentre({ event, predictions, table, injuries, lineups, stat
               <Link href={away ? `/teams/${away.id}` : '#'} className="font-display text-base font-semibold leading-tight hover:underline sm:text-lg">
                 {away?.name ?? 'TBD'}
               </Link>
-              {away && positions.has(away.id) ? <span className="text-xs text-muted-foreground">{ordinal(positions.get(away.id) as number)} in table</span> : null}
+              {standingFor(away?.id)}
               <FormDots form={away ? formString(away.id, awayForm) : ''} />
             </div>
           </div>
