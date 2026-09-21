@@ -146,7 +146,28 @@ function serveStats(row: ArchiveRow, p: 'w' | 'l', sets: number, games: number):
   if (df !== undefined) stats.doubleFaults = df;
   if (svpt && firstIn !== undefined) stats.firstServePct = Math.round((firstIn / svpt) * 1000) / 10;
   if (bpFaced !== undefined && bpSaved !== undefined) stats.breakPointsWon = bpFaced - bpSaved;
+  // The raw serve counts the Markov model runs on. Serve points won is first
+  // serves won plus second serves won, which is every point held on serve.
+  const firstWon = num(row[`${p}_1stWon`]);
+  const secondWon = num(row[`${p}_2ndWon`]);
+  const svGms = num(row[`${p}_SvGms`]);
+  const ownBpFaced = num(row[`${p}_bpFaced`]);
+  const ownBpSaved = num(row[`${p}_bpSaved`]);
+  if (svpt !== undefined && svpt > 0) stats.servePoints = svpt;
+  if (firstWon !== undefined && secondWon !== undefined) stats.servePointsWon = firstWon + secondWon;
+  if (svGms !== undefined) stats.serveGames = svGms;
+  if (ownBpFaced !== undefined) stats.bpFaced = ownBpFaced;
+  if (ownBpSaved !== undefined) stats.bpSaved = ownBpSaved;
   return stats;
+}
+
+/** The ranking each player held at the time, which is what a fit needs. */
+function withStanding(base: Record<string, number>, row: ArchiveRow, who: 'winner' | 'loser'): Record<string, number> {
+  const rank = num(row[`${who}_rank`]);
+  const seed = num(row[`${who}_seed`]);
+  if (rank !== undefined && rank > 0) base.rank = rank;
+  if (seed !== undefined && seed > 0) base.seed = seed;
+  return base;
 }
 
 export function rowToStats(row: ArchiveRow, event: EventRef): EventStatsRef[] {
@@ -154,8 +175,8 @@ export function rowToStats(row: ArchiveRow, event: EventRef): EventStatsRef[] {
   const winner = playerRef(row, 'winner');
   const loser = playerRef(row, 'loser');
   return [
-    { eventExternalId: event.externalId, teamExternalId: winner.externalId, stats: serveStats(row, 'w', sets[0], games[0]) },
-    { eventExternalId: event.externalId, teamExternalId: loser.externalId, stats: serveStats(row, 'l', sets[1], games[1]) },
+    { eventExternalId: event.externalId, teamExternalId: winner.externalId, stats: withStanding(serveStats(row, 'w', sets[0], games[0]), row, 'winner') },
+    { eventExternalId: event.externalId, teamExternalId: loser.externalId, stats: withStanding(serveStats(row, 'l', sets[1], games[1]), row, 'loser') },
   ];
 }
 

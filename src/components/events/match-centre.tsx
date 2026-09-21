@@ -54,7 +54,9 @@ export function MatchCentre({ event, predictions, table, ranks = {}, injuries, l
   const home = event.home;
   const away = event.away;
   const ensemble = predictions.filter((p) => p.modelKey === 'ensemble').sort((a, b) => b.version - a.version)[0] ?? null;
-  const shown = new Set([...(sport?.models ?? []), 'baseline', 'market']);
+  // A player sport no longer produces a baseline, because filing sides
+  // alphabetically made it meaningless; older rows should not linger either.
+  const shown = new Set([...(sport?.models ?? []), ...(sport?.shape === 'PLAYER_VS_PLAYER' ? [] : ['baseline']), 'market']);
   const latestByModel = new Map<string, PredictionDto>();
   for (const p of predictions) if (shown.has(p.modelKey) && !latestByModel.has(p.modelKey)) latestByModel.set(p.modelKey, p);
   const finished = event.status === 'FINISHED';
@@ -74,6 +76,18 @@ export function MatchCentre({ event, predictions, table, ranks = {}, injuries, l
     if (positions.has(teamId)) return <span className="text-xs text-muted-foreground">{ordinal(positions.get(teamId) as number)} in table</span>;
     return null;
   }
+  // A sport with no draw always has a winner, so always name one.
+  const tieFactor = ensemble?.factors.find((factor) => factor.key === 'tiebreak') ?? null;
+  const evidenceFactor = ensemble?.factors.find((factor) => factor.key === 'evidence') ?? null;
+  const favourite =
+    ensemble && sport && !sport.hasDraws
+      ? (ensemble.probs.HOME ?? 0) >= (ensemble.probs.AWAY ?? 0)
+        ? home
+        : away
+      : null;
+  // The evidence and tie-break entries are shown beside the favourite, so they
+  // would only repeat themselves here, and neither moves the probability.
+  const whyFactors = (ensemble?.factors ?? []).filter((factor) => factor.key !== 'evidence' && factor.key !== 'tiebreak');
   const headlineStats = (sport?.stats ?? []).filter((s) => s.headline).map((s) => s.key);
   const statDefs = new Map((sport?.stats ?? []).map((s) => [s.key, s]));
 
@@ -150,6 +164,22 @@ export function MatchCentre({ event, predictions, table, ranks = {}, injuries, l
                   <span className="truncate">{away?.shortName ?? away?.name ?? sport?.outcomeLabels.AWAY ?? 'Away'}</span>
                 </span>
               </div>
+              {favourite ? (
+                <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2 text-xs">
+                  <span className="text-muted-foreground">
+                    Favourite <span className="font-semibold text-foreground">{favourite.name}</span>
+                    {tieFactor?.note ? `, ${tieFactor.note}` : ''}
+                  </span>
+                  {tieFactor ? (
+                    <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-warning">Too close to call</span>
+                  ) : null}
+                  {evidenceFactor ? (
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" title={evidenceFactor.note}>
+                      {evidenceFactor.label.replace('Evidence: ', '')} evidence
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="mt-5 text-center text-sm text-muted-foreground">No prediction yet. The engine runs 48 hours before kickoff.</p>
@@ -166,7 +196,12 @@ export function MatchCentre({ event, predictions, table, ranks = {}, injuries, l
               eventId={event.id}
               pick={pick}
               outcomes={sport ? outcomesFor(sport) : ['HOME', 'AWAY']}
-              labels={(sport?.outcomeLabels ?? {}) as Record<string, string>}
+              labels={{
+                ...((sport?.outcomeLabels ?? {}) as Record<string, string>),
+                ...(sport?.shape === 'PLAYER_VS_PLAYER'
+                  ? { HOME: home?.shortName ?? home?.name ?? 'Player 1', AWAY: away?.shortName ?? away?.name ?? 'Player 2' }
+                  : {}),
+              }}
               open={event.status === 'SCHEDULED' && new Date(event.startsAt).getTime() > Date.now()}
               result={finished ? resultWinner(event.result) : null}
             />
@@ -206,9 +241,9 @@ export function MatchCentre({ event, predictions, table, ranks = {}, injuries, l
               </CardHeader>
               <CardContent className="space-y-3">
                 {ensemble?.narrative ? <p className="text-sm">{ensemble.narrative}</p> : null}
-                {ensemble && ensemble.factors.length > 0 ? (
+                {ensemble && whyFactors.length > 0 ? (
                   <ul className="space-y-1.5">
-                    {ensemble.factors.map((f) => (
+                    {whyFactors.map((f) => (
                       <li key={f.key} className="flex items-center gap-2 text-sm" title={f.note ?? undefined}>
                         <span className="flex w-28 shrink-0 items-center gap-1 truncate text-muted-foreground">
                           {f.source === 'ai' ? <span className="rounded bg-[var(--chart-ai)]/20 px-1 text-[9px] font-bold text-[var(--chart-ai)]">AI</span> : null}

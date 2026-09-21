@@ -49,7 +49,8 @@ export async function accuracyReport(sportKey: string | null, days = 365, limit 
   const upsets: AccuracyReport['upsets'] = [];
 
   for (const row of list) {
-    const s: Scores = { brier: row.brier, logLoss: row.logLoss, rps: row.rps, correct: row.correct };
+    // A stored evaluation already resolved to a call, so it counts as decided.
+    const s: Scores = { brier: row.brier, logLoss: row.logLoss, rps: row.rps, correct: row.correct, tied: false };
     (scoresByModel.get(row.modelKey) ?? scoresByModel.set(row.modelKey, []).get(row.modelKey)!).push(s);
     if (row.exactScore !== null) {
       const e = exactByModel.get(row.modelKey) ?? { n: 0, hits: 0 };

@@ -114,7 +114,9 @@ const refit: JobHandler = {
       for (let i = 0; i < points.length; i += 500) {
         await withDatabase(() => prisma.rating.createMany({ data: points.slice(i, i + 500) }));
       }
-      await saveModelState(sportKey, '', 'elo', { ratings: result.finalElo.ratings, lastSeason: result.finalElo.lastSeason }, { drawBase: result.finalElo.params.drawBase });
+      // `games` matters: a rank-seeded competitor blends toward their fitted
+      // rating by how much they have played, so dropping it loses that weight.
+      await saveModelState(sportKey, '', 'elo', { ratings: result.finalElo.ratings, lastSeason: result.finalElo.lastSeason, games: result.finalElo.games }, { drawBase: result.finalElo.params.drawBase });
       for (const [competitionId, state] of result.finalDc) await saveModelState(sportKey, competitionId, 'dixon-coles', state);
       if (result.ml) await saveModelState(sportKey, '', 'ml', result.ml);
       await updateModelConfig(sportKey, 'ensemble', { params: { temperature: Math.round(result.report.temperature * 1000) / 1000 } });

@@ -136,11 +136,16 @@ const MATCH_WINDOW_MS = 36 * 3_600_000;
  * natural key (competition, home, away, kickoff within 36 hours), which is
  * how a second provider's data lands on the same fixture.
  */
-export async function upsertEvent(provider: ProviderKey, competition: Competition, ref: EventRef): Promise<Event> {
+export async function upsertEvent(provider: ProviderKey, competition: Competition, ref: EventRef): Promise<Event | null> {
   const sportKey = competition.sportKey as SportKey;
   if (ref.entrants && ref.entrants.length > 0) return upsertRace(provider, competition, ref);
   const home = await resolveTeam(provider, ref.home, sportKey);
   const away = await resolveTeam(provider, ref.away, sportKey);
+  // Two names that resolve to the same competitor mean the entity matcher has
+  // merged two people, which is most likely with similar player names. The
+  // event is unusable and a participant row would breach its unique key, so
+  // skip it rather than lose the rest of the season to a failed transaction.
+  if (home.id === away.id) return null;
 
   const candidates = await prisma.event.findMany({
     where: {

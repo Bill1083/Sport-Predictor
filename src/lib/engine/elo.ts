@@ -18,6 +18,13 @@ export interface EloParams {
   drawBase: number;
   /** How the draw probability falls as the gap grows: fitted from history. */
   drawSlope: number;
+  /** Start a competitor no result has been seen for from their published ranking. */
+  seedFromRank?: boolean;
+  /** The ranking that maps to `initialRating`; everyone else is placed around it. */
+  seedRefRank?: number;
+  seedScale?: number;
+  /** Matches at which the fitted rating and the seed weigh equally. */
+  seedBlendGames?: number;
 }
 
 export const DEFAULT_ELO_PARAMS: EloParams = {
@@ -52,6 +59,13 @@ export interface EloState {
   history: EloHistoryPoint[];
   params: EloParams;
   updatedThrough: string | null;
+  /**
+   * A rating a competitor starts from before their own results move them,
+   * derived from an external ranking. Applied only when predicting: seeding
+   * the historical pass with today's ranking would leak the future into
+   * every past match.
+   */
+  seeds?: Record<string, number>;
 }
 
 export function emptyElo(params: EloParams = DEFAULT_ELO_PARAMS): EloState {
@@ -130,6 +144,26 @@ export function computeElo(matches: EloMatch[], params: EloParams = DEFAULT_ELO_
 /** Pre-match probabilities for a fixture from the current ratings. */
 export function eloPredict(state: EloState, home: string, away: string, hasDraws: boolean): Record<string, number> {
   return eloOutcomeProbs(rating(state, home) - rating(state, away), state.params, hasDraws);
+}
+
+/**
+ * The rating to predict with, blending the seed toward the fitted rating as a
+ * competitor plays. Someone with no matches is entirely their seed; by
+ * `blendGames` matches the two weigh equally, and the fitted rating takes over
+ * from there.
+ */
+export function seededRating(state: EloState, team: string, blendGames = 10): number {
+  const seed = state.seeds?.[team];
+  if (seed === undefined) return rating(state, team);
+  const fitted = state.ratings[team];
+  if (fitted === undefined) return seed;
+  const played = state.games[team] ?? blendGames;
+  const weight = played / (played + blendGames);
+  return weight * fitted + (1 - weight) * seed;
+}
+
+export function eloPredictSeeded(state: EloState, home: string, away: string, hasDraws: boolean, blendGames = 10): Record<string, number> {
+  return eloOutcomeProbs(seededRating(state, home, blendGames) - seededRating(state, away, blendGames), state.params, hasDraws);
 }
 
 export function eloRating(state: EloState, team: string): number {

@@ -15,6 +15,7 @@ import { fitLogistic, predictLogistic, type LogisticParams, type LogisticState }
 import { fitMargin, marginPredict, type MarginState } from '@/lib/engine/margin';
 import { calibrationBins, calibrationSlope, score, summarise, type CalibrationBin, type Scores, type Summary } from '@/lib/engine/metrics';
 import { gridOutcomes, scoreGrid } from '@/lib/engine/poisson';
+import { DEFAULT_RANK_PARAMS, fitRankBeta, rankProbs, type RankSample } from '@/lib/engine/sports/tennis-rank';
 import type { ModelSettings } from '@/lib/engine/config';
 import { outcomesFor, type SportDefinition } from '@/lib/sports/registry';
 import type { ProbMap } from '@/lib/types';
@@ -82,7 +83,12 @@ export async function walkForward(
 ): Promise<WalkResult> {
   const outcomes: string[] = outcomesFor(sport);
   const hasDraws = sport.hasDraws;
+  const isPlayerSport = sport.shape === 'PLAYER_VS_PLAYER';
+  const rankParams = { ...DEFAULT_RANK_PARAMS, ...((configs.get('rank')?.params ?? {}) as Partial<typeof DEFAULT_RANK_PARAMS>) };
+  let rankBeta = rankParams.beta;
   const usesDc = configs.has('dixon-coles');
+  const usesMargin = configs.has('margin');
+  const usesRank = configs.has('rank');
   const eloParams = paramsOf<EloParams>(configs, 'elo', emptyElo().params);
   const dcParams = paramsOf<DcParams>(configs, 'dixon-coles', { xi: 0.0018, maxIterations: 300, l2: 0.02, maxAgeDays: 1_200 });
   const mlParams = paramsOf<LogisticParams>(configs, 'ml', { l2: 0.5, iterations: 500, learningRate: 0.15 });
@@ -136,9 +142,21 @@ export async function walkForward(
         }
         byCompetition.set(competitionId, models);
       }
-      if (!usesDc && (!marginFittedAt || chunkStart.getTime() - marginFittedAt.getTime() >= options.refitEveryDays * 86_400_000)) {
+      if (usesMargin && (!marginFittedAt || chunkStart.getTime() - marginFittedAt.getTime() >= options.refitEveryDays * 86_400_000)) {
         margin = seen.length >= 20 ? fitMargin(seen, elo, chunkStart, sport.priors) : null;
         marginFittedAt = chunkStart;
+      }
+      if (usesRank && chunkIndex % options.mlRetrainChunks === 0) {
+        // Only matches already played, so the fitted beta never sees its own future.
+        const samples: RankSample[] = [];
+        for (const m of seen) {
+          const rh = m.stats.home?.rank;
+          const ra = m.stats.away?.rank;
+          if (typeof rh === 'number' && typeof ra === 'number' && rh > 0 && ra > 0) {
+            samples.push({ rankHome: rh, rankAway: ra, homeWon: m.homeScore > m.awayScore });
+          }
+        }
+        rankBeta = fitRankBeta(samples, rankParams).beta;
       }
       if (chunkIndex % options.mlRetrainChunks === 0 && rows.length >= options.mlMinRows) {
         ml = fitLogistic(
@@ -155,7 +173,7 @@ export async function walkForward(
         const models = byCompetition.get(match.competitionId);
         const probs: Record<string, ProbMap> = {};
         const priorMatches = seen.filter((m) => m.competitionId === match.competitionId);
-        probs.baseline = outcomeFrequencies(priorMatches.slice(-380), hasDraws);
+        if (!isPlayerSport) probs.baseline = outcomeFrequencies(priorMatches.slice(-380), hasDraws);
         probs.elo = eloPredict(elo, match.home, match.away, hasDraws);
         let scoreProbs: ProbMap | null = null;
         if (usesDc && models?.dc) {
@@ -163,9 +181,13 @@ export async function walkForward(
           const grid = gridOutcomes(scoreGrid(lambdaHome, lambdaAway, models.dc.rho));
           scoreProbs = hasDraws ? grid : { HOME: grid.HOME / (grid.HOME + grid.AWAY), AWAY: grid.AWAY / (grid.HOME + grid.AWAY) };
           probs['dixon-coles'] = scoreProbs;
-        } else if (!usesDc && margin) {
+        } else if (usesMargin && margin) {
           scoreProbs = marginPredict(margin, elo, match.home, match.away, hasDraws).probs;
           probs.margin = scoreProbs;
+        }
+        if (usesRank) {
+          const rp = rankProbs(match.stats.home?.rank ?? null, match.stats.away?.rank ?? null, { ...rankParams, beta: rankBeta });
+          if (rp) probs.rank = rp;
         }
         const features = buildFeatures({ history: seen, home: match.home, away: match.away, kickoff: match.date, elo, dcProbs: scoreProbs, positions: tableless, absences: { home: 0, away: 0 } });
         if (ml) probs.ml = predictLogistic(ml, features);
@@ -176,7 +198,10 @@ export async function walkForward(
 
         const outcome = outcomeOf(match);
         rows.push({ eventId: match.id, competitionId: match.competitionId, date: match.date, outcome, features, probs });
-        if (!options.scoreFrom || match.date >= options.scoreFrom) {
+        // An outcome the sport does not have (a level score in a no-draw sport)
+        // cannot be scored against, so it is left out rather than charged as a
+        // maximum-loss miss to every model at once.
+        if ((!options.scoreFrom || match.date >= options.scoreFrom) && outcomes.includes(outcome)) {
           const index = outcomes.indexOf(outcome);
           for (const [key, p] of Object.entries(probs)) {
             const s = score(toOrdered(p, outcomes), index);
@@ -199,7 +224,7 @@ export async function walkForward(
   }
 
   // Temperature and best weights from the scored rows.
-  const scoredRows = rows.filter((r) => !options.scoreFrom || r.date >= options.scoreFrom);
+  const scoredRows = rows.filter((r) => (!options.scoreFrom || r.date >= options.scoreFrom) && outcomes.includes(r.outcome));
   const temperature = fitTemperature(scoredRows.map((r) => ({ probs: toOrdered(r.probs.ensemble, outcomes), index: outcomes.indexOf(r.outcome) })));
   const search = bestWeights(scoredRows, Object.keys(weights), outcomes);
 

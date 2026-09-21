@@ -6,6 +6,8 @@ import { fitLogistic, predictLogistic } from '@/lib/engine/logistic';
 import { fitStats, forecastStats, type StatSample } from '@/lib/engine/stats-model';
 import { gridOutcomes, scoreGrid } from '@/lib/engine/poisson';
 import { poisson, rng } from '@/lib/providers/mock/generator';
+import { defaultModelSettings } from '@/lib/engine/config';
+import { score, summarise } from '@/lib/engine/metrics';
 import { SPORTS } from '@/lib/sports/registry';
 
 /** A synthetic league with known strengths, so the fitters have a truth to recover. */
@@ -142,5 +144,70 @@ describe('fitLogistic', () => {
     expect(weak.AWAY).toBeGreaterThan(0.7);
     expect(level.DRAW).toBeGreaterThan(level.HOME);
     expect(strong.HOME + strong.DRAW + strong.AWAY).toBeCloseTo(1, 8);
+  });
+});
+
+describe('model configuration per sport', () => {
+  it('leaves every other sport exactly as it was', () => {
+    // The tennis work must not reach football, rugby or Formula 1.
+    expect(defaultModelSettings('football').map((m) => m.key)).toEqual(['baseline', 'elo', 'dixon-coles', 'stats', 'ml', 'market', 'ai', 'ensemble']);
+    expect(defaultModelSettings('rugby_union').map((m) => m.key)).toEqual(['baseline', 'elo', 'margin', 'stats', 'ml', 'market', 'ai', 'ensemble']);
+    expect(defaultModelSettings('f1').map((m) => m.key)).toEqual(['baseline', 'elo', 'race-sim', 'stats', 'ml', 'market', 'ai', 'ensemble']);
+    expect(defaultModelSettings('cricket').map((m) => m.key)).not.toContain('rank');
+  });
+
+  it('gives tennis the ranking and Markov models', () => {
+    const keys = defaultModelSettings('tennis').map((m) => m.key);
+    expect(keys).toContain('rank');
+    expect(keys).toContain('markov');
+    // A model missing from the sport definition is computed but never shown.
+    const tennis = SPORTS.find((s) => s.key === 'tennis');
+    expect(tennis?.models).toContain('rank');
+    expect(tennis?.models).toContain('markov');
+  });
+
+  it('only seeds ratings from a ranking where a ranking exists', () => {
+    const tennisElo = defaultModelSettings('tennis').find((m) => m.key === 'elo');
+    expect((tennisElo?.params as { seedFromRank?: boolean }).seedFromRank).toBe(true);
+    const footballElo = defaultModelSettings('football').find((m) => m.key === 'elo');
+    expect((footballElo?.params as { seedFromRank?: boolean }).seedFromRank).toBeUndefined();
+  });
+});
+
+describe('score', () => {
+  it('does not credit the first outcome when the call was a dead heat', () => {
+    // The old behaviour silently marked every 50/50 as a pick for whichever
+    // name sorted first, inflating accuracy on exactly the matches it knew least about.
+    const home = score([0.5, 0.5], 0);
+    const away = score([0.5, 0.5], 1);
+    expect(home.tied).toBe(true);
+    expect(away.tied).toBe(true);
+    expect(home.correct).toBe(false);
+    expect(away.correct).toBe(false);
+  });
+
+  it('still scores a real call', () => {
+    expect(score([0.6, 0.4], 0)).toMatchObject({ correct: true, tied: false });
+    expect(score([0.6, 0.4], 1)).toMatchObject({ correct: false, tied: false });
+  });
+
+  it('takes accuracy over the calls that were actually made', () => {
+    const scores = [score([0.6, 0.4], 0), score([0.6, 0.4], 0), score([0.7, 0.3], 1), score([0.3, 0.7], 0), score([0.5, 0.5], 0), score([0.5, 0.5], 1)];
+    const summary = summarise(scores);
+    expect(summary.n).toBe(6);
+    expect(summary.ties).toBe(2);
+    expect(summary.accuracy).toBe(0.5);
+  });
+});
+
+describe('unscoreable outcomes', () => {
+  it('refuses an outcome the sport does not have rather than charging a maximum miss', () => {
+    // Tennis walkovers arrive as 0-0, which resolves to a draw in a sport with
+    // no draw. Passing that through as index -1 read a probability of zero and
+    // charged every model roughly fourteen nats, wrecking log loss and driving
+    // the temperature fit to its ceiling.
+    expect(() => score([0.6, 0.4], -1)).toThrow(/outside/);
+    expect(() => score([0.6, 0.4], 2)).toThrow(/outside/);
+    expect(() => score([0.6, 0.4], 1)).not.toThrow();
   });
 });

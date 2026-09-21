@@ -8,6 +8,8 @@
 import { DEFAULT_DC_PARAMS, type DcParams } from '@/lib/engine/dixon-coles';
 import { DEFAULT_ELO_PARAMS, type EloParams } from '@/lib/engine/elo';
 import { DEFAULT_LOGISTIC_PARAMS, type LogisticParams } from '@/lib/engine/logistic';
+import { DEFAULT_RANK_PARAMS, type RankParams } from '@/lib/engine/sports/tennis-rank';
+import { DEFAULT_SERVE_PARAMS, type ServeParams } from '@/lib/engine/sports/tennis-serve';
 import { DEFAULT_STAT_PARAMS, type StatParams } from '@/lib/engine/stats-model';
 import { parseJson, prisma, withDatabase } from '@/lib/prisma';
 import type { SportKey } from '@/lib/sports/registry';
@@ -37,7 +39,7 @@ const ELO_FOR = (sport: SportKey): EloParams => {
     case 'cricket':
       return { ...DEFAULT_ELO_PARAMS, k: 26, homeAdvantage: 45, drawBase: 0.08, drawSlope: 1.2, marginMultiplier: false };
     case 'tennis':
-      return { ...DEFAULT_ELO_PARAMS, k: 32, homeAdvantage: 0, drawBase: 0, seasonRegression: 0.15, marginMultiplier: false };
+      return { ...DEFAULT_ELO_PARAMS, k: 32, homeAdvantage: 0, drawBase: 0, seasonRegression: 0.15, marginMultiplier: false, seedFromRank: true, seedRefRank: 100, seedScale: 1, seedBlendGames: 10 };
     case 'basketball':
       return { ...DEFAULT_ELO_PARAMS, k: 20, homeAdvantage: 80, drawBase: 0 };
     case 'american_football':
@@ -86,6 +88,24 @@ export function defaultModelSettings(sport: SportKey): ModelSettings[] {
       weight: 0.5,
       params: { xi: 0.002, sigma: null },
       help: 'Expected margin from the rating gap plus home advantage; sigma is the spread of margins, fitted at refit.',
+    });
+  }
+  if (sport === 'tennis') {
+    list.push({
+      key: 'rank',
+      label: 'Ranking model',
+      enabled: true,
+      weight: 0.35,
+      params: { ...DEFAULT_RANK_PARAMS } satisfies RankParams,
+      help: 'beta: log-odds per natural-log unit of ranking gap, fitted at refit from the ranks players held on the day. unrankedRank: the rank an unranked player is treated as. unrankedShrink: how far a one-sided ranking is pulled back toward even.',
+    });
+    list.push({
+      key: 'markov',
+      label: 'Serve/return Markov',
+      enabled: true,
+      weight: 0.45,
+      params: { ...DEFAULT_SERVE_PARAMS } satisfies ServeParams,
+      help: 'xi: time decay per day on serve statistics. shrinkPoints: pseudo serve points pulling a player toward the tour average. surfaceShrinkPoints: how hard a surface rate is pulled toward that player\'s overall rate. minPoints: below this the player has no usable serve estimate and the model stands down.',
     });
   }
   if (sport === 'f1') {

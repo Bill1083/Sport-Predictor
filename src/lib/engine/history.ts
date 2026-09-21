@@ -5,7 +5,7 @@
 
 import { prisma, withDatabase } from '@/lib/prisma';
 import { parseJson } from '@/lib/prisma';
-import type { SportKey } from '@/lib/sports/registry';
+import { sportDefinition, type SportKey } from '@/lib/sports/registry';
 import { parseResult } from '@/lib/types';
 
 export interface HistoryMatch {
@@ -18,9 +18,12 @@ export interface HistoryMatch {
   homeScore: number;
   awayScore: number;
   stats: { home: Record<string, number> | null; away: Record<string, number> | null };
+  /** Sport-specific format, e.g. tennis "Hard BO3", which carries the surface. */
+  format: string | null;
 }
 
 export async function loadSportHistory(sportKey: SportKey, before?: Date, competitionId?: string): Promise<HistoryMatch[]> {
+  const hasDraws = sportDefinition(sportKey)?.hasDraws ?? true;
   const rows = await withDatabase(() =>
     prisma.event.findMany({
       where: {
@@ -39,6 +42,7 @@ export async function loadSportHistory(sportKey: SportKey, before?: Date, compet
         homeTeamId: true,
         awayTeamId: true,
         resultJson: true,
+        format: true,
         stats: { select: { teamId: true, statsJson: true } },
       },
       orderBy: { startsAt: 'asc' },
@@ -49,6 +53,11 @@ export async function loadSportHistory(sportKey: SportKey, before?: Date, compet
   for (const row of rows.data) {
     const result = parseResult(row.resultJson);
     if (typeof result.homeScore !== 'number' || typeof result.awayScore !== 'number') continue;
+    // A sport with no draw cannot have a level score, yet walkovers and early
+    // retirements arrive as 0-0. Such a match has no winner to learn from, and
+    // downstream it resolves to an outcome the sport does not have, which
+    // silently poisons calibration and inflates every log loss it touches.
+    if (!hasDraws && result.homeScore === result.awayScore) continue;
     const homeStats = row.stats.find((s) => s.teamId === row.homeTeamId);
     const awayStats = row.stats.find((s) => s.teamId === row.awayTeamId);
     out.push({
@@ -60,6 +69,7 @@ export async function loadSportHistory(sportKey: SportKey, before?: Date, compet
       away: row.awayTeamId as string,
       homeScore: result.homeScore,
       awayScore: result.awayScore,
+      format: row.format,
       stats: {
         home: homeStats ? parseJson<Record<string, number>>(homeStats.statsJson, {}) : null,
         away: awayStats ? parseJson<Record<string, number>>(awayStats.statsJson, {}) : null,

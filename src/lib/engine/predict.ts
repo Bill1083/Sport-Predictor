@@ -11,13 +11,19 @@
 import type { Event } from '@prisma/client';
 
 import { assessEvent } from '@/lib/ai/assess';
+import { loadRankIndex, rankOf, type RankIndex } from '@/lib/engine/ranks';
+import { DEFAULT_RANK_PARAMS, fitRankBeta, rankProbs, ratingFromRank, type RankParams, type RankSample, type RankState } from '@/lib/engine/sports/tennis-rank';
+import { markovForecast, parseTennisFormat } from '@/lib/engine/sports/tennis-markov';
+import { setScoreForecast, snapToLegalScore } from '@/lib/engine/sports/tennis-sets';
+import { DEFAULT_SERVE_PARAMS, fitServeReturn, matchServeProbs, serveSamplesFrom, type ServeParams, type ServeState } from '@/lib/engine/sports/tennis-serve';
+import { breakTie, evidenceFor, type Evidence, type TieBreakResult } from '@/lib/engine/tiebreak';
 import { computeRaceOutputs } from '@/lib/engine/race';
 import { loadModelConfigs, saveModelState, type LoadedModel } from '@/lib/engine/config';
 import { fitDixonColes, dcRates, type DcParams, type DcState } from '@/lib/engine/dixon-coles';
-import { computeElo, eloPredict, eloRating, type EloParams, type EloState } from '@/lib/engine/elo';
+import { computeElo, eloPredict, eloPredictSeeded, eloRating, type EloParams, type EloState } from '@/lib/engine/elo';
 import { applyTemperature, blend, clipProbs, type Member } from '@/lib/engine/ensemble';
 import { buildFeatures, contributionsToFactors, heuristicFactors } from '@/lib/engine/features';
-import { loadSportHistory, outcomeFrequencies, type HistoryMatch } from '@/lib/engine/history';
+import { formOf, loadSportHistory, outcomeFrequencies, recentFor, type HistoryMatch } from '@/lib/engine/history';
 import { logisticContributions, predictLogistic, type LogisticState } from '@/lib/engine/logistic';
 import { fitMargin, marginPredict, type MarginState } from '@/lib/engine/margin';
 import { gridOutcomes, scoreForecastFromGrid, scoreGrid } from '@/lib/engine/poisson';
@@ -60,6 +66,13 @@ export interface SportModels {
   ml: LogisticState | null;
   ensemble: EnsembleParams;
   weights: Record<string, number>;
+  /** Published rankings, loaded once for the whole pass. */
+  ranks: RankIndex | null;
+  rank: RankState | null;
+  /** Serve and return rates per competition: tours differ too much to pool. */
+  serve: Map<string, ServeState>;
+  /** Matches on record per competitor, which is how much evidence there is. */
+  appearances: Map<string, number>;
 }
 
 function paramsOf<T>(configs: Map<string, LoadedModel>, key: string, fallback: T): T {
@@ -75,21 +88,23 @@ export async function prepareSportModels(sportKey: SportKey, log?: (line: string
   const now = new Date();
 
   const eloParams = paramsOf<EloParams>(configs, 'elo', computeElo([]).params);
-  const eloStored = configs.get('elo')?.state ? parseJson<{ ratings: Record<string, number>; lastSeason: Record<string, string> } | null>(configs.get('elo')!.state, null) : null;
+  const eloStored = configs.get('elo')?.state ? parseJson<{ ratings: Record<string, number>; lastSeason: Record<string, string>; games?: Record<string, number> } | null>(configs.get('elo')!.state, null) : null;
   let elo: EloState;
   if (eloStored && configs.get('elo')?.fittedAt && now.getTime() - (configs.get('elo')!.fittedAt as Date).getTime() < 6 * 3_600_000) {
-    elo = { ratings: eloStored.ratings, lastSeason: eloStored.lastSeason, games: {}, history: [], params: eloParams, updatedThrough: null };
+    elo = { ratings: eloStored.ratings, lastSeason: eloStored.lastSeason, games: eloStored.games ?? {}, history: [], params: eloParams, updatedThrough: null };
   } else {
     elo = computeElo(
       history.map((m) => ({ home: m.home, away: m.away, homeScore: m.homeScore, awayScore: m.awayScore, date: m.date, season: m.season })),
       eloParams,
     );
-    await saveModelState(sportKey, '', 'elo', { ratings: elo.ratings, lastSeason: elo.lastSeason });
+    await saveModelState(sportKey, '', 'elo', { ratings: elo.ratings, lastSeason: elo.lastSeason, games: elo.games });
     log?.(`elo fitted on ${history.length} matches`);
   }
 
   const dc = new Map<string, DcState>();
   const stats = new Map<string, StatState>();
+  const serve = new Map<string, ServeState>();
+  const serveParams = paramsOf<ServeParams>(configs, 'markov', DEFAULT_SERVE_PARAMS);
   const competitions = Array.from(new Set(history.map((m) => m.competitionId)));
   const usesDc = configs.has('dixon-coles');
   const dcParams = paramsOf<DcParams>(configs, 'dixon-coles', { xi: 0.0018, maxIterations: 400, l2: 0.02, maxAgeDays: 1_200 });
@@ -111,6 +126,20 @@ export async function prepareSportModels(sportKey: SportKey, log?: (line: string
         dc.set(competitionId, fitted);
         await saveModelState(sportKey, competitionId, 'dixon-coles', fitted);
         log?.(`dixon-coles fitted for ${competitionId} on ${own.length} matches (home ${fitted.home.toFixed(2)}, rho ${fitted.rho.toFixed(3)})`);
+      }
+    }
+    if (configs.has('markov')) {
+      const storedServe = fresh('markov');
+      const serveState = storedServe ? parseJson<ServeState | null>(storedServe, null) : null;
+      if (serveState) serve.set(competitionId, serveState);
+      else {
+        const samples = serveSamplesFrom(own);
+        if (samples.length >= 100) {
+          const fitted = fitServeReturn(samples, now, serveParams);
+          serve.set(competitionId, fitted);
+          await saveModelState(sportKey, competitionId, 'markov', fitted);
+          log?.(`markov fitted for ${competitionId} on ${samples.length} player-matches (tour serve ${((fitted.tour[''] ?? 0) * 100).toFixed(1)}%)`);
+        }
       }
     }
     const storedStats = fresh('stats');
@@ -151,7 +180,51 @@ export async function prepareSportModels(sportKey: SportKey, log?: (line: string
     if (key === 'ai') continue; // blended separately by the AI layer
     weights[key] = loaded.settings.weight;
   }
-  return { sport, configs, history, elo, dc, stats, margin, ml, ensemble, weights };
+  // Rankings: one query for the pass, and beta fitted from the ranks players
+  // actually held on the day, which the archive stores alongside each match.
+  let ranks: RankIndex | null = null;
+  let rank: RankState | null = null;
+  if (configs.has('rank')) {
+    ranks = await loadRankIndex(sportKey);
+    const rankParams = paramsOf<RankParams>(configs, 'rank', DEFAULT_RANK_PARAMS);
+    const row = configs.get('rank');
+    const storedRank = row?.state ? parseJson<RankState | null>(row.state, null) : null;
+    if (storedRank && row?.fittedAt && now.getTime() - row.fittedAt.getTime() < 24 * 3_600_000) {
+      rank = storedRank;
+    } else {
+      const samples: RankSample[] = [];
+      for (const m of history) {
+        const rh = m.stats.home?.rank;
+        const ra = m.stats.away?.rank;
+        if (typeof rh === 'number' && typeof ra === 'number' && rh > 0 && ra > 0) {
+          samples.push({ rankHome: rh, rankAway: ra, homeWon: m.homeScore > m.awayScore });
+        }
+      }
+      rank = fitRankBeta(samples, rankParams);
+      await saveModelState(sportKey, '', 'rank', rank);
+      log?.(`rank: ${ranks.count} ranked competitors, beta ${rank.beta.toFixed(3)} from ${rank.matches} matches with ranks on the day`);
+    }
+    if (eloParams.seedFromRank) {
+      const seeds: Record<string, number> = {};
+      for (const [teamId, value] of ranks.rank) {
+        seeds[teamId] = ratingFromRank(value, {
+          beta: rank?.beta ?? DEFAULT_RANK_PARAMS.beta,
+          initialRating: eloParams.initialRating,
+          refRank: eloParams.seedRefRank ?? 100,
+          seedScale: eloParams.seedScale ?? 1,
+        });
+      }
+      elo.seeds = seeds;
+    }
+  }
+
+  const appearances = new Map<string, number>();
+  for (const m of history) {
+    appearances.set(m.home, (appearances.get(m.home) ?? 0) + 1);
+    appearances.set(m.away, (appearances.get(m.away) ?? 0) + 1);
+  }
+
+  return { sport, configs, history, elo, dc, stats, margin, ml, ensemble, weights, ranks, rank, serve, appearances };
 }
 
 export interface ModelOutputs {
@@ -163,6 +236,11 @@ export interface ModelOutputs {
   ensemble: ProbMap;
   confidence: number;
   narrative?: string | null;
+  /** Which side is named as favourite, even when the gap is negligible. */
+  favourite?: 'HOME' | 'AWAY' | null;
+  /** Why it was named, when the models themselves could not separate them. */
+  tieReason?: string | null;
+  evidence?: Evidence | null;
 }
 
 type EventForPrediction = Event & { competition: { id: string; currentSeason: string | null } };
@@ -179,9 +257,24 @@ export async function computeOutputs(models: SportModels, event: EventForPredict
   const competitionHistory = history.filter((m) => m.competitionId === event.competitionId && m.date < kickoff);
 
   const probs: Record<string, ProbMap> = {};
-  probs.baseline = outcomeFrequencies(competitionHistory.slice(-380), hasDraws);
-  probs.elo = eloPredict(elo, home, away, hasDraws);
+  // For a player sport the "home" side is just the alphabetically earlier name
+  // (see sidesFor in the tennis provider), so a home-win frequency measures
+  // nothing. Better no baseline than a misleading one.
+  const isPlayerSport = sport.shape === 'PLAYER_VS_PLAYER';
+  if (!isPlayerSport) probs.baseline = outcomeFrequencies(competitionHistory.slice(-380), hasDraws);
+  probs.elo = elo.seeds ? eloPredictSeeded(elo, home, away, hasDraws, elo.params.seedBlendGames ?? 10) : eloPredict(elo, home, away, hasDraws);
 
+  const rankHome = rankOf(models.ranks, home);
+  const rankAway = rankOf(models.ranks, away);
+  if (models.ranks) {
+    const rankParams = { ...DEFAULT_RANK_PARAMS, ...((models.configs.get('rank')?.settings.params ?? {}) as Partial<RankParams>) };
+    const fittedBeta = models.rank?.beta;
+    const rp = rankProbs(rankHome, rankAway, fittedBeta ? { ...rankParams, beta: fittedBeta } : rankParams);
+    if (rp) probs.rank = rp;
+  }
+
+  const { surface, bestOf } = parseTennisFormat(event.format);
+  const serveState = models.serve.get(event.competitionId) ?? null;
   let scoreProbs: ProbMap | null = null;
   let score: ScoreForecast | null = null;
   const dcState = models.dc.get(event.competitionId);
@@ -192,6 +285,14 @@ export async function computeOutputs(models: SportModels, event: EventForPredict
     scoreProbs = hasDraws ? raw : { HOME: raw.HOME / (raw.HOME + raw.AWAY), AWAY: raw.AWAY / (raw.HOME + raw.AWAY) };
     probs['dixon-coles'] = scoreProbs;
     score = scoreForecastFromGrid(grid, lambdaHome, lambdaAway);
+  } else if (serveState) {
+    const sp = matchServeProbs(serveState, home, away, surface);
+    if (sp) {
+      const forecast = markovForecast(sp.home, sp.away, bestOf);
+      scoreProbs = forecast.probs;
+      probs.markov = forecast.probs;
+      score = forecast.score;
+    }
   } else if (models.margin) {
     const m = marginPredict(models.margin, elo, home, away, hasDraws);
     scoreProbs = m.probs;
@@ -244,15 +345,59 @@ export async function computeOutputs(models: SportModels, event: EventForPredict
   ensemble = applyTemperature(ensemble, models.ensemble.temperature);
   ensemble = clipProbs(ensemble, models.ensemble.clipFloor, models.ensemble.clipCeil);
 
+  // A sport with no draw always has a winner, so never leave the reader with
+  // a dead heat. Name a side from the best signal available and say which.
+  const homeMatches = models.appearances.get(home) ?? 0;
+  const awayMatches = models.appearances.get(away) ?? 0;
+  let tie: TieBreakResult | null = null;
+  if (!hasDraws) {
+    const homeForm = formOf(recentFor(history, home, kickoff, 10), home);
+    const awayForm = formOf(recentFor(history, away, kickoff, 10), away);
+    tie = breakTie({
+      probs: ensemble,
+      home,
+      away,
+      epsilon: 0.01,
+      nudge: 0.005,
+      rank: { home: rankHome, away: rankAway },
+      form: { home: homeForm.ppg / 3, away: awayForm.ppg / 3 },
+      h2h: features.h2hEdge ?? 0,
+      matches: { home: homeMatches, away: awayMatches },
+    });
+    ensemble = tie.probs;
+  }
+  // Rankings and serve statistics are how a player sport is evidenced. Judging
+  // a football fixture by whether its teams are ranked would mark every one of
+  // them thin and quietly halve its confidence.
+  const evidence: Evidence = isPlayerSport
+    ? evidenceFor({
+        homeMatches,
+        awayMatches,
+        ranked: { home: rankHome !== null, away: rankAway !== null },
+        serveStats: { home: Boolean(serveState?.points[home]), away: Boolean(serveState?.points[away]) },
+      })
+    : { level: 'strong', factor: 1, notes: [] };
+
   const factors = models.ml
     ? contributionsToFactors(logisticContributions(models.ml, features), ensemble.HOME ?? 0.5)
     : heuristicFactors(features, elo.params.homeAdvantage);
+
+  // A table position or a home record means nothing on a neutral court, and
+  // showing them invites the reader to trust a number that is noise.
+  const meaningless = new Set(['posDiff', 'homeVenueForm', 'awayVenueForm', 'dcHome', 'dcAway', 'gd5Diff']);
+  const shownFactors = isPlayerSport ? factors.filter((factor) => !meaningless.has(factor.key)) : factors;
+  // Carried as factors because those are already stored and already rendered,
+  // so the page can explain a thin call without a new column.
+  if (tie?.broken) shownFactors.unshift({ key: 'tiebreak', label: 'Too close to call', effect: 0, note: tie.reason ?? undefined, source: 'model' });
+  if (evidence.level !== 'strong') {
+    shownFactors.unshift({ key: 'evidence', label: `Evidence: ${evidence.level}`, effect: 0, note: evidence.notes.join('; ') || undefined, source: 'model' });
+  }
 
   const statState = models.stats.get(event.competitionId);
   const stats = statState ? forecastStats(statState, home, away, sport.stats) : null;
   if (stats && score) {
     // The score model owns expected goals; keep the stat table consistent with it.
-    const goalsDef = sport.stats.find((s) => s.key === 'goals' || s.key === 'points' || s.key === 'runs');
+    const goalsDef = sport.stats.find((s) => s.key === 'goals' || s.key === 'points' || s.key === 'runs' || s.key === 'sets');
     if (goalsDef && stats[goalsDef.key]) {
       stats[goalsDef.key].home.mean = score.expected.home;
       stats[goalsDef.key].away.mean = score.expected.away;
@@ -261,9 +406,20 @@ export async function computeOutputs(models: SportModels, event: EventForPredict
 
   // Confidence: how far the ensemble is from uniform, 0..1.
   const maxP = Math.max(...outcomes.map((o) => ensemble[o] ?? 0));
-  const confidence = Math.round(((maxP - 1 / outcomes.length) / (1 - 1 / outcomes.length)) * 100) / 100;
+  const separation = (maxP - 1 / outcomes.length) / (1 - 1 / outcomes.length);
+  const confidence = Math.round(separation * evidence.factor * 100) / 100;
 
-  return { probs, score, stats, factors, features, ensemble, confidence };
+  // Tennis has no scoreline model without serve statistics, but any win
+  // probability still implies a set score, and it is never a level one.
+  if (!score && isPlayerSport && sport.scoreLabel === 'sets') {
+    score = setScoreForecast(ensemble.HOME ?? 0.5, bestOf);
+  }
+
+  const favourite: 'HOME' | 'AWAY' | null = hasDraws
+    ? null
+    : tie?.favourite ?? ((ensemble.HOME ?? 0) >= (ensemble.AWAY ?? 0) ? 'HOME' : 'AWAY');
+
+  return { probs, score, stats, factors: shownFactors, features, ensemble, confidence, favourite, tieReason: tie?.broken ? tie.reason : null, evidence };
 }
 
 /** Which refresh stage an event is in: 0 early, 1 within a day, 2 within the lineup window. */
@@ -273,6 +429,9 @@ export function stageFor(kickoff: Date, now: Date, lineupMinutes: number): { sta
   if (minutes <= 24 * 60) return { stage: 1, threshold: 24 * 60 };
   return { stage: 0, threshold: Number.POSITIVE_INFINITY };
 }
+
+/** Models that own a scoreline, so their row carries the forecast. */
+const SCORE_MODELS = new Set(['dixon-coles', 'margin', 'markov']);
 
 /** Store a prediction pass for an event: one row per model and the ensemble. */
 export async function storePrediction(event: Event, outputs: ModelOutputs, mode: string, now = new Date()): Promise<number> {
@@ -286,7 +445,7 @@ export async function storePrediction(event: Event, outputs: ModelOutputs, mode:
     mode,
     minutesToKickoff,
     probsJson: JSON.stringify(probs),
-    scoreJson: modelKey === 'dixon-coles' || modelKey === 'margin' ? JSON.stringify(outputs.score) : null,
+    scoreJson: SCORE_MODELS.has(modelKey) ? JSON.stringify(outputs.score) : null,
   }));
   rows.push({
     eventId: event.id,
@@ -374,7 +533,12 @@ export async function predictSport(sportKey: SportKey, options: PredictOptions =
           outputs.factors = [...outputs.factors, ...assessment.factors];
           outputs.narrative = assessment.narrative;
           if (assessment.expectedScore && outputs.score) {
-            outputs.score = { ...outputs.score, mostLikely: { ...assessment.expectedScore, p: outputs.score.mostLikely.p } };
+            // The model returns two integers and nothing checks them, which is
+            // how a tennis match came to be predicted 1-1. A scoreline the
+            // sport cannot produce is dropped and the computed one stands.
+            const { bestOf } = parseTennisFormat(event.format);
+            const snapped = snapToLegalScore(assessment.expectedScore, models.sport, bestOf);
+            if (snapped) outputs.score = { ...outputs.score, mostLikely: { ...snapped, p: outputs.score.mostLikely.p } };
           }
           const outcomes = outcomesFor(models.sport);
           const maxP = Math.max(...outcomes.map((o) => outputs.ensemble[o] ?? 0));

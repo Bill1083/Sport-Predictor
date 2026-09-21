@@ -10,6 +10,8 @@ export interface Scores {
   /** Ranked probability score; only meaningful for three ordered outcomes. */
   rps: number | null;
   correct: boolean;
+  /** The highest probability was shared, so there was no favourite to be right about. */
+  tied: boolean;
 }
 
 const EPS = 1e-6;
@@ -39,13 +41,35 @@ export function rankedProbabilityScore(probs: number[], index: number): number {
   return total / (k - 1);
 }
 
+const TIE_EPS = 1e-9;
+
+/**
+ * Reading the favourite off the highest probability quietly credits index zero
+ * whenever two outcomes are level, which for a player sport means the
+ * alphabetically earlier name wins every coin flip. A shared maximum is
+ * recorded as no call at all, and accuracy is taken over the calls that were
+ * actually made.
+ */
 export function score(probs: number[], index: number): Scores {
-  const best = probs.indexOf(Math.max(...probs));
+  // A caller that cannot map the result to one of the sport's outcomes must
+  // skip the row, not pass -1: that would charge a maximum-loss miss.
+  if (index < 0 || index >= probs.length) throw new Error(`score: outcome index ${index} is outside the ${probs.length} outcomes`);
+  const max = Math.max(...probs);
+  let leaders = 0;
+  let best = -1;
+  for (let i = 0; i < probs.length; i += 1) {
+    if (probs[i] >= max - TIE_EPS) {
+      leaders += 1;
+      if (best < 0) best = i;
+    }
+  }
+  const tied = leaders > 1;
   return {
     brier: brierScore(probs, index),
     logLoss: logLoss(probs, index),
     rps: probs.length === 3 ? rankedProbabilityScore(probs, index) : null,
-    correct: best === index,
+    correct: !tied && best === index,
+    tied,
   };
 }
 
@@ -55,18 +79,22 @@ export interface Summary {
   logLoss: number;
   rps: number | null;
   accuracy: number;
+  /** Predictions with no favourite, excluded from accuracy. */
+  ties: number;
 }
 
 export function summarise(scores: Scores[]): Summary {
-  if (scores.length === 0) return { n: 0, brier: 0, logLoss: 0, rps: null, accuracy: 0 };
+  if (scores.length === 0) return { n: 0, brier: 0, logLoss: 0, rps: null, accuracy: 0, ties: 0 };
   const n = scores.length;
   const withRps = scores.filter((s) => s.rps !== null);
+  const decided = scores.filter((s) => !s.tied);
   return {
     n,
     brier: scores.reduce((s, x) => s + x.brier, 0) / n,
     logLoss: scores.reduce((s, x) => s + x.logLoss, 0) / n,
     rps: withRps.length > 0 ? withRps.reduce((s, x) => s + (x.rps as number), 0) / withRps.length : null,
-    accuracy: scores.filter((s) => s.correct).length / n,
+    accuracy: decided.length > 0 ? decided.filter((s) => s.correct).length / decided.length : 0,
+    ties: n - decided.length,
   };
 }
 

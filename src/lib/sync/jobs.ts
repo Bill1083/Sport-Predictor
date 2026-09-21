@@ -463,9 +463,12 @@ const backfill: JobHandler = {
             const refs = await provider.listHistory!(ref, [season]);
             for (const eventRef of refs) {
               const event = await upsertEvent(provider.key, competition, eventRef);
+              if (!event) continue;
               events += 1;
               if (provider.getEventStats && scope.options?.withStats !== false) {
-                const existing = await prisma.eventStats.count({ where: { eventId: event.id } });
+                // `forceStats` rewrites rows that already exist, which is how new
+                // stat keys reach events stored before those keys were captured.
+                const existing = scope.options?.forceStats === true ? 0 : await prisma.eventStats.count({ where: { eventId: event.id } });
                 if (existing < 2) stats += await upsertEventStats(provider.key, event, await provider.getEventStats(eventRef));
               }
             }
